@@ -1,0 +1,975 @@
+<title>LogR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* ============================================================
+   LogR — tokens. Light palette complete on :root; dark redefines.
+   Every colour validated (see docs/18-design-system.md).
+   ============================================================ */
+:root{
+  --plane:#F3F3F1; --s1:#FCFCFB; --s2:#FFFFFF; --s3:#F0EFEC;
+  --line:rgba(11,11,11,.10); --line-strong:rgba(11,11,11,.18);
+  --ink:#0B0B0B; --ink2:#52514E; --ink3:#898781;
+  --grid:#E1E0D9; --axis:#C3C2B7;
+  --profit:#1baf7a; --loss:#e34948; --profit-dim:rgba(27,175,122,.16); --loss-dim:rgba(227,73,72,.16);
+  --c1:#2a78d6; --c2:#eda100; --c3:#e87ba4;
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
+  --focus:#2a78d6;
+  --ui:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --r-card:12px; --r-ctl:8px;
+  --shadow:0 8px 28px rgba(11,11,11,.16);
+}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+  --plane:#0A0B0D; --s1:#12141A; --s2:#191C23; --s3:#1F232B;
+  --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.16);
+  --ink:#F4F5F7; --ink2:#9BA1AC; --ink3:#6B7280;
+  --grid:#22262E; --axis:#2E333D;
+  --profit:#199e70; --loss:#e66767; --profit-dim:rgba(25,158,112,.18); --loss-dim:rgba(230,103,103,.18);
+  --c1:#3987e5; --c2:#c98500; --c3:#d55181;
+  --focus:#3987e5;
+  --shadow:0 10px 34px rgba(0,0,0,.55);
+}}
+:root[data-theme="dark"]{
+  --plane:#0A0B0D; --s1:#12141A; --s2:#191C23; --s3:#1F232B;
+  --line:rgba(255,255,255,.08); --line-strong:rgba(255,255,255,.16);
+  --ink:#F4F5F7; --ink2:#9BA1AC; --ink3:#6B7280;
+  --grid:#22262E; --axis:#2E333D;
+  --profit:#199e70; --loss:#e66767; --profit-dim:rgba(25,158,112,.18); --loss-dim:rgba(230,103,103,.18);
+  --c1:#3987e5; --c2:#c98500; --c3:#d55181;
+  --focus:#3987e5;
+  --shadow:0 10px 34px rgba(0,0,0,.55);
+}
+:root[data-cvd="on"]{ --loss:#d95926; --loss-dim:rgba(217,89,38,.18); }
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:var(--plane);color:var(--ink);
+  font-family:var(--ui);font-size:15px;line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
+
+/* ---------- shell ---------- */
+#app{max-width:460px;margin:0 auto;min-height:100%;background:var(--plane);
+     display:flex;flex-direction:column;position:relative}
+.scroll{flex:1;overflow-y:auto;padding:0 16px;padding-block:14px 96px}
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--plane);
+        display:flex;align-items:center;gap:10px;padding:10px 16px 8px;border-bottom:1px solid transparent}
+.topbar.sep{border-bottom-color:var(--line)}
+.topbar h1{margin:0;font-size:17px;font-weight:600;letter-spacing:-.01em;flex:1}
+.back{font-size:14px;color:var(--ink2);display:flex;align-items:center;gap:5px;padding:4px 2px}
+.iconbtn{width:32px;height:32px;border-radius:var(--r-ctl);display:grid;place-items:center;color:var(--ink2)}
+.iconbtn:hover{background:var(--s3)}
+
+/* ---------- tabbar ---------- */
+.tabbar{position:fixed;bottom:0;left:0;right:0;z-index:30;
+  background:color-mix(in srgb,var(--plane) 88%,transparent);backdrop-filter:blur(14px);
+  border-top:1px solid var(--line);
+  padding:6px 0 calc(6px + env(safe-area-inset-bottom,0px));}
+.tabbar-inner{max-width:460px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
+.tab{display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px 0;color:var(--ink3);font-size:10px;font-weight:500}
+.tab[aria-current="page"]{color:var(--ink)}
+.tab svg{width:20px;height:20px}
+
+/* ---------- primitives ---------- */
+.card{background:var(--s1);border:1px solid var(--line);border-radius:var(--r-card);padding:16px}
+.stack{display:flex;flex-direction:column;gap:12px}
+.row{display:flex;align-items:center;gap:10px}
+.between{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.eyebrow{font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3)}
+.muted{color:var(--ink2)}
+.tiny{font-size:11px;color:var(--ink3)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.pos{color:var(--profit)} .neg{color:var(--loss)}
+.sectionhead{display:flex;align-items:baseline;justify-content:space-between;margin:20px 2px 8px}
+.sectionhead h2{margin:0;font-size:13px;font-weight:600;letter-spacing:.02em}
+.link{font-size:12.5px;color:var(--ink2);font-weight:500}
+.divider{height:1px;background:var(--line);margin:12px -16px}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;
+      padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--ink2);white-space:nowrap}
+.pill.p{color:var(--profit);border-color:color-mix(in srgb,var(--profit) 40%,transparent);background:var(--profit-dim)}
+.pill.l{color:var(--loss);border-color:color-mix(in srgb,var(--loss) 40%,transparent);background:var(--loss-dim)}
+.est{font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);
+     border:1px dashed var(--line-strong);border-radius:4px;padding:1px 4px}
+
+/* ---------- hero / score ---------- */
+.hero{background:var(--s1);border:1px solid var(--line);border-radius:var(--r-card);padding:18px 16px}
+.hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.hero-fig{font-size:52px;line-height:.95;font-weight:600;letter-spacing:-.03em}
+.hero-sub{font-size:12.5px;color:var(--ink2);margin-top:6px}
+.grade{font-family:var(--mono);font-size:20px;font-weight:700;padding:5px 10px;border-radius:var(--r-ctl);
+       background:var(--s3);border:1px solid var(--line)}
+.meter{height:5px;border-radius:3px;background:var(--s3);overflow:hidden;margin-top:14px}
+.meter i{display:block;height:100%;border-radius:3px;background:var(--c1)}
+
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);
+      border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden}
+.kpi{background:var(--s1);padding:12px 10px}
+.kpi .v{font-size:19px;font-weight:600;letter-spacing:-.02em;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.kpi .k{font-size:10.5px;color:var(--ink3);margin-top:3px;font-weight:500}
+
+/* ---------- insight ---------- */
+.insight{background:var(--s1);border:1px solid var(--line);border-left:3px solid var(--c2);
+         border-radius:var(--r-card);padding:14px 15px}
+.insight p{margin:7px 0 0;font-size:14px;line-height:1.5}
+.insight .cta{margin-top:11px;font-size:12.5px;font-weight:600;color:var(--c1)}
+
+/* ---------- calendar ---------- */
+.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.dow{font-size:9.5px;color:var(--ink3);text-align:center;font-weight:600;letter-spacing:.04em;padding-bottom:2px}
+.cell{aspect-ratio:1;border-radius:6px;border:1px solid var(--line);background:var(--s1);
+      display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:2px;
+      font-family:var(--mono);cursor:pointer;position:relative}
+.cell.void{background:transparent;border-color:transparent;cursor:default}
+.cell .d{font-size:8.5px;color:var(--ink3);line-height:1}
+.cell .v{font-size:9.5px;font-weight:700;line-height:1.1;font-variant-numeric:tabular-nums}
+.cell.sel{outline:2px solid var(--focus);outline-offset:1px}
+.callegend{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3);margin-top:10px}
+.swatch{width:13px;height:13px;border-radius:3px;border:1px solid var(--line)}
+
+/* ---------- segmented ---------- */
+.seg{display:inline-flex;background:var(--s3);border:1px solid var(--line);border-radius:var(--r-ctl);padding:2px;gap:2px}
+.seg button{font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:6px;color:var(--ink3)}
+.seg button[aria-pressed="true"]{background:var(--s1);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.14)}
+
+/* ---------- trade list ---------- */
+.tlist{display:flex;flex-direction:column;gap:1px;background:var(--line);border:1px solid var(--line);
+       border-radius:var(--r-card);overflow:hidden}
+.trow{background:var(--s1);display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;
+      padding:11px 13px;text-align:left;width:100%}
+.trow:hover{background:var(--s2)}
+.dirdot{width:7px;height:7px;border-radius:2px}
+.trow .mid .t1{font-size:13.5px;font-weight:600;letter-spacing:-.01em}
+.trow .mid .t2{font-size:11px;color:var(--ink3);margin-top:1px}
+.trow .end{text-align:right}
+.trow .end .p{font-size:14px;font-weight:600;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.trow .end .r{font-size:10.5px;color:var(--ink3);font-family:var(--mono)}
+
+/* ---------- chart ---------- */
+.chartwrap{background:var(--s1);border:1px solid var(--line);border-radius:var(--r-card);overflow:hidden}
+svg.chart{display:block;width:100%;height:auto;touch-action:manipulation}
+.chart text{font-family:var(--mono);font-size:8.5px;fill:var(--ink3)}
+.chart .lbl{font-family:var(--ui);font-size:8.5px;font-weight:700}
+
+/* ---------- score rows ---------- */
+.srow{display:grid;grid-template-columns:18px 1fr auto;gap:10px;align-items:start;padding:9px 0;border-top:1px solid var(--line)}
+.srow:first-of-type{border-top:none}
+.srow .mk{font-size:13px;line-height:1.3;text-align:center}
+.srow .nm{font-size:13px;font-weight:500}
+.srow .nt{font-size:11.5px;color:var(--ink3);margin-top:2px;line-height:1.4}
+.srow .sc{font-family:var(--mono);font-size:12px;color:var(--ink2);white-space:nowrap;padding-top:1px}
+
+/* ---------- legs table ---------- */
+.tblwrap{overflow-x:auto}
+table.legs{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px;font-variant-numeric:tabular-nums}
+table.legs th{text-align:right;font-family:var(--ui);font-size:10px;font-weight:600;color:var(--ink3);
+              padding:5px 7px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.legs th:first-child,table.legs td:first-child{text-align:left}
+table.legs td{text-align:right;padding:6px 7px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.legs tr:last-child td{border-bottom:none}
+
+/* ---------- chips ---------- */
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{font-size:12px;font-weight:500;padding:7px 11px;border-radius:999px;border:1px solid var(--line);
+      background:var(--s1);color:var(--ink2);min-height:34px;display:inline-flex;align-items:center}
+.chip[aria-pressed="true"]{background:color-mix(in srgb,var(--c1) 16%,var(--s1));
+      border-color:color-mix(in srgb,var(--c1) 55%,transparent);color:var(--ink);font-weight:600}
+
+/* ---------- review ---------- */
+.dots{display:flex;gap:4px;flex:1}
+.dot{height:3px;flex:1;border-radius:2px;background:var(--s3)}
+.dot.done{background:var(--profit)} .dot.now{background:var(--c1)}
+.timer{font-family:var(--mono);font-size:12px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.btn{display:block;width:100%;text-align:center;padding:13px;border-radius:var(--r-ctl);
+     font-size:14.5px;font-weight:600;background:var(--ink);color:var(--plane);min-height:46px}
+.btn.ghost{background:var(--s1);color:var(--ink);border:1px solid var(--line-strong)}
+.hint{font-size:11.5px;color:var(--ink3);text-align:center;margin-top:9px}
+.done-fig{font-size:44px;font-weight:600;letter-spacing:-.03em;font-family:var(--mono)}
+
+/* ---------- cost ---------- */
+.bar{height:26px;border-radius:5px;background:var(--s3);overflow:hidden;display:flex}
+.bar i{display:block;height:100%}
+.costgrid{width:100%;border-collapse:collapse;font-size:12.5px}
+.costgrid th{font-size:10px;font-weight:600;color:var(--ink3);text-align:right;padding:6px 8px;border-bottom:1px solid var(--line)}
+.costgrid th:first-child{text-align:left}
+.costgrid td{text-align:right;padding:8px;border-bottom:1px solid var(--line);
+             font-family:var(--mono);font-variant-numeric:tabular-nums}
+.costgrid td:first-child{text-align:left;font-family:var(--ui)}
+.costgrid tr:last-child td{border-bottom:none}
+
+.banner{background:var(--s3);border:1px solid var(--line);border-radius:var(--r-ctl);
+        padding:9px 12px;font-size:11.5px;color:var(--ink2);display:flex;gap:8px;align-items:flex-start}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.fade{animation:fade .18s ease-out}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+</style>
+
+<div id="app">
+  <div id="top"></div>
+  <div class="scroll" id="view"></div>
+  <nav class="tabbar" aria-label="Sections">
+    <div class="tabbar-inner" id="tabs"></div>
+  </nav>
+</div>
+
+<script>
+/* =========================================================================
+   LogR prototype — synthetic XAUUSD data, no backend.
+   Sample data only: every figure below is generated, not a real account.
+   ========================================================================= */
+
+/* ---------- seeded RNG (stable across reloads) ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+const rnd=mulberry32(20260918);
+const R=()=>rnd(), RI=(a,b)=>a+Math.floor(rnd()*(b-a+1)), RF=(a,b)=>a+rnd()*(b-a);
+const pick=a=>a[Math.floor(rnd()*a.length)];
+
+/* ---------- domain constants ---------- */
+const OZ_PER_LOT=100, TODAY=new Date(2026,8,18);
+const SESSIONS=[
+  {k:'Asia',   h:1,  w:.10},
+  {k:'London', h:8,  w:.42},
+  {k:'NY AM',  h:13, w:.36},
+  {k:'NY PM',  h:17, w:.12},
+];
+const CONFLUENCES=['Liquidity sweep','HTF bias','Order block','Fair value gap','Fib OTE','SNR level','BOS / CHoCH','Equal highs'];
+const SETUPS=['Zone reversal','Sweep continuation'];
+
+/* ---------- generate days ---------- */
+function buildDays(){
+  const days=[]; let price=4288, id=0;
+  for(let back=29;back>=0;back--){
+    const d=new Date(TODAY); d.setDate(d.getDate()-back);
+    const dow=d.getDay();
+    const drift=RF(-26,30); price=Math.max(4180,Math.min(4470,price+drift));
+    if(dow===0||dow===6){days.push({date:d,weekend:true,trades:[]});continue;}
+    // volatility regime for the day
+    const rr=R();
+    const regime = rr<.22?'Low': rr<.68?'Normal': rr<.92?'High':'Extreme';
+    const atr = {Low:14,Normal:26,High:44,Extreme:68}[regime]*RF(.85,1.15);
+    const active = back<=25;              // account opens ~3.5 weeks ago
+    const n = active? RI(11,26) : 0;
+    const trades=[];
+    for(let i=0;i<n;i++) trades.push(makeTrade(id++, d, price, atr, regime));
+    days.push({date:d,weekend:false,regime,atr,trades});
+  }
+  return days;
+}
+
+function makeTrade(id,date,dayPrice,atr,regime){
+  // session by weight
+  let r=R(),acc=0,ses=SESSIONS[1];
+  for(const s of SESSIONS){acc+=s.w; if(r<=acc){ses=s;break;}}
+  const minute=ses.h*60+RI(0,235);
+  const dir = R()<.52?'long':'short';
+  const sign = dir==='long'?1:-1;
+
+  const entry = dayPrice + RF(-atr*.45,atr*.45);
+  const zoneH = atr*RF(.055,.14);                       // zone height scales with ATR
+  const zoneLow = dir==='long'? entry-zoneH : entry-zoneH*RF(.2,.5);
+  const zoneHigh = zoneLow+zoneH;
+
+  const layers=RI(2,5);
+  const lotPer=+(RF(.006,.016)).toFixed(3);
+  const lots=+(lotPer*layers).toFixed(3);
+
+  // how deep into the zone price ran before turning
+  const fillDepth = Math.min(1, RF(.25,1.15));
+  const filled = Math.max(1, Math.round(layers*fillDepth));
+  const chased = R()<.24;
+  const legs=[];
+  for(let i=0;i<filled;i++){
+    const f=filled===1?0:i/(filled-1);
+    let p = dir==='long' ? zoneHigh-(zoneH*f) : zoneLow+(zoneH*f);
+    if(chased && i===filled-1) p += (dir==='long'? zoneH*RF(.12,.45) : -zoneH*RF(.12,.45));
+    legs.push({t:minute+i*RI(1,7),price:+p.toFixed(2),lots:lotPer});
+  }
+  const usedLots=+(lotPer*filled).toFixed(3);
+  const avgEntry=+(legs.reduce((s,l)=>s+l.price,0)/legs.length).toFixed(2);
+
+  const buffer=atr*RF(.035,.075);
+  const invalidation=+((dir==='long'? zoneLow-buffer : zoneHigh+buffer)).toFixed(2);
+  const riskDist=Math.abs(avgEntry-invalidation);
+  const riskAmt=riskDist*OZ_PER_LOT*usedLots;
+  const target=+(avgEntry+sign*riskDist*RF(1.6,3.4)).toFixed(2);
+
+  // outcome — tuned to ~54% win, PF ~1.5, avg win ~1.33x avg loss
+  const deepPenalty = fillDepth>.92 ? .12 : 0;
+  const win = R() < (.545-deepPenalty);
+  const rMult = win ? RF(.35,1.15)+ (R()<.18?RF(.4,1.5):0) : -(RF(.28,.95)+(R()<.10?RF(.2,.5):0));
+  const netPnl = +(rMult*riskAmt).toFixed(2);
+
+  const mfeR = win? rMult+RF(.15,1.5) : RF(.1,.85);
+  const maeR = win? RF(.05,.65) : Math.abs(rMult)+RF(0,.18);
+  const hold = RI(3,34);
+
+  // exits: partials then a runner
+  const nOut = win? RI(2,3) : 1;
+  const exits=[]; let remaining=usedLots;
+  for(let i=0;i<nOut;i++){
+    const last=i===nOut-1;
+    const part = last? +remaining.toFixed(3) : +(usedLots*RF(.3,.45)).toFixed(3);
+    remaining=+(remaining-part).toFixed(3);
+    const frac = nOut===1?1:(i+1)/nOut;
+    const px = win ? avgEntry+sign*riskDist*rMult*frac*RF(.85,1.12)
+                   : invalidation+sign*RF(-.25,.25)*buffer;
+    exits.push({t:minute+hold*frac, price:+px.toFixed(2), lots:part,
+                kind: last?(nOut===1?'stop-out':'runner'):'partial'});
+    if(remaining<=0) break;
+  }
+  const beMoved = win && nOut>1 && R()<.72;
+  const beEarly = beMoved && R()<.55;         // moved before price cleared the zone
+
+  // confluences present
+  const nConf=RI(2,5); const conf=[];
+  while(conf.length<nConf){const c=pick(CONFLUENCES); if(!conf.includes(c))conf.push(c);}
+
+  const t={
+    id,date:new Date(date),minute,session:ses.k,dir,setup: R()<.62?SETUPS[0]:SETUPS[1],
+    zoneLow:+zoneLow.toFixed(2),zoneHigh:+zoneHigh.toFixed(2),
+    layers,filled,legs,lots:usedLots,avgEntry,invalidation,target,
+    riskDist:+riskDist.toFixed(2),riskAmt:+riskAmt.toFixed(2),
+    rMult:+rMult.toFixed(2),netPnl,mfeR:+mfeR.toFixed(2),maeR:+maeR.toFixed(2),
+    fillDepth:+Math.min(1,fillDepth).toFixed(2),hold,exits,beMoved,beEarly,conf,regime,atr,
+    spread:+RF(.15,.36).toFixed(2),
+    heldPast: !win && R()<.28,
+    overSize: usedLots>.045,
+    reviewed:false, userInvalidation:null,
+  };
+  t.spreadCost=+(t.spread*OZ_PER_LOT*t.lots).toFixed(2);
+  t.score=scoreTrade(t);
+  return t;
+}
+
+/* ---------- execution score: computable before the outcome is known ---------- */
+function scoreTrade(t){
+  const rows=[];
+  const cN=t.conf.length;
+  rows.push({nm:'Setup validity',max:20,got:cN>=5?20:cN===4?15:cN===3?10:5,
+    nt:`${cN} confluence${cN>1?'s':''} present: ${t.conf.slice(0,3).join(', ')}${cN>3?'…':''}`});
+  const outside=t.legs.some(l=> l.price>t.zoneHigh+.02 || l.price<t.zoneLow-.02);
+  rows.push({nm:'Zone discipline',max:15,got:outside?7:15,
+    nt:outside?'One entry filled outside the declared zone':'All entries inside the zone'});
+  rows.push({nm:'Size discipline',max:20,got:t.overSize?8:20,
+    nt:t.overSize?`Ladder took total size to ${t.lots} lots, above your 0.05 max`:`${t.filled} of ${t.layers} layers filled, ${t.lots} lots total`});
+  rows.push({nm:'Invalidation honoured',max:15,got:t.heldPast?0:15,
+    nt:t.heldPast?'Held past your invalidation before exiting':'Exited at or before invalidation'});
+  const early = t.mfeR-t.rMult>0.6;
+  rows.push({nm:'Target discipline',max:15,got:early?8:15,
+    nt:early?`Closed at ${t.rMult}R; structural target was ${((t.target-t.avgEntry)/(t.dir==='long'?t.riskDist:-t.riskDist)).toFixed(1)}R away`:'Partials landed at planned levels'});
+  rows.push({nm:'Breakeven timing',max:10,got:t.beEarly?0:10,
+    nt:t.beEarly?'Runner moved to BE before price cleared the zone':(t.beMoved?'BE moved after the zone was cleared':'No BE move needed')});
+  const ctxOk = t.session!=='Asia';
+  rows.push({nm:'Context compliance',max:5,got:ctxOk?5:2,
+    nt:ctxOk?`${t.session} session, inside your allowed hours`:'Asia session is outside your allowed hours'});
+  const total=rows.reduce((s,r)=>s+r.got,0);
+  return {total,rows};
+}
+
+/* ---------- synthetic M1 bars for one trade ---------- */
+function barsFor(t){
+  const g=mulberry32(t.id*7919+13);
+  const n=76, pre=14, sign=t.dir==='long'?1:-1;
+  const vol=t.atr/260;
+  const mfePx=t.avgEntry+sign*t.riskDist*t.mfeR;
+  const maePx=t.avgEntry-sign*t.riskDist*t.maeR;
+  const lastExit=t.exits[t.exits.length-1].price;
+  const gf=(a,b)=>a+g()*(b-a);
+  const way=[
+    [0, t.avgEntry+sign*t.riskDist*gf(.9,1.6)],
+    [pre, t.legs[0].price],
+    [pre+Math.round((n-pre)*.18), maePx],
+    [pre+Math.round((n-pre)*.58), mfePx],
+    [pre+Math.round((n-pre)*.74), lastExit],
+    [n-1, lastExit+sign*t.riskDist*(t.rMult>0?gf(-.3,.9):gf(-.2,1.1))],
+  ];
+  const bars=[]; let prev=way[0][1];
+  for(let i=0;i<n;i++){
+    let a=way[0],b=way[way.length-1];
+    for(let k=0;k<way.length-1;k++) if(i>=way[k][0]&&i<=way[k+1][0]){a=way[k];b=way[k+1];break;}
+    const f=b[0]===a[0]?0:(i-a[0])/(b[0]-a[0]);
+    const base=a[1]+(b[1]-a[1])*(f*f*(3-2*f));
+    const o=prev, c=base+(g()-.5)*vol*2.4;
+    const h=Math.max(o,c)+g()*vol*1.6, l=Math.min(o,c)-g()*vol*1.6;
+    bars.push({o,h,l,c}); prev=c;
+  }
+  return {bars,pre,exitIdx:pre+Math.round((n-pre)*.74)};
+}
+
+/* ---------- aggregate ---------- */
+const DAYS=buildDays();
+const ALL=DAYS.flatMap(d=>d.trades);
+DAYS.forEach(d=>{
+  d.net=+d.trades.reduce((s,t)=>s+t.netPnl,0).toFixed(2);
+  d.score=d.trades.length? Math.round(d.trades.reduce((s,t)=>s+t.score.total,0)/d.trades.length):null;
+  d.rSum=+d.trades.reduce((s,t)=>s+t.rMult,0).toFixed(2);
+  d.cost=+d.trades.reduce((s,t)=>s+t.spreadCost,0).toFixed(2);
+});
+const TRADING=DAYS.filter(d=>d.trades.length);
+const S={
+  net:+ALL.reduce((s,t)=>s+t.netPnl,0).toFixed(2),
+  wins:ALL.filter(t=>t.netPnl>0).length,
+  losses:ALL.filter(t=>t.netPnl<=0).length,
+  gp:+ALL.filter(t=>t.netPnl>0).reduce((s,t)=>s+t.netPnl,0).toFixed(2),
+  gl:+Math.abs(ALL.filter(t=>t.netPnl<=0).reduce((s,t)=>s+t.netPnl,0)).toFixed(2),
+  orders:ALL.reduce((s,t)=>s+t.legs.length+t.exits.length,0),
+  lots:+ALL.reduce((s,t)=>s+t.lots,0).toFixed(2),
+  cost:+ALL.reduce((s,t)=>s+t.spreadCost,0).toFixed(2),
+  score:Math.round(ALL.reduce((s,t)=>s+t.score.total,0)/ALL.length),
+};
+S.wr=S.wins/(S.wins+S.losses); S.pf=S.gp/S.gl;
+S.avgWin=S.gp/S.wins; S.avgLoss=S.gl/S.losses;
+S.notional=+(S.lots*OZ_PER_LOT*4350).toFixed(0);
+const LAST=TRADING[TRADING.length-1];
+const FLOAT=200;
+
+/* ---------- helpers ---------- */
+const money=(v,d=2)=>{const a=Math.abs(v);const z=a.toFixed(d)==(0).toFixed(d);return (z?'':v<0?'−':'+')+'$'+a.toFixed(d);};
+const money0=v=>'$'+Math.abs(v).toFixed(0);
+const gradeOf=s=>s>=90?'A':s>=82?'A−':s>=75?'B+':s>=68?'B':s>=60?'C+':s>=52?'C':s>=45?'D':'F';
+const fmtDate=d=>d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});
+const hhmm=m=>String(Math.floor(m/60)%24).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function cellColor(net,max){
+  if(net===0||net==null) return 'var(--s1)';
+  const pct=Math.min(1,Math.abs(net)/max);
+  const step=Math.round(12+pct*52);
+  return `color-mix(in srgb, var(${net>0?'--profit':'--loss'}) ${step}%, var(--s1))`;
+}
+
+/* ---------- derived findings (real computations over the synthetic set) ---------- */
+function expectancy(list){return list.length? list.reduce((s,t)=>s+t.rMult,0)/list.length : 0;}
+const F={};
+{
+  const deep=ALL.filter(t=>t.fillDepth>=.92), shallow=ALL.filter(t=>t.fillDepth<.92);
+  F.deep={n:deep.length,e:expectancy(deep)}; F.shallow={n:shallow.length,e:expectancy(shallow)};
+  const be=ALL.filter(t=>t.beEarly); F.be={n:be.length,cost:+be.reduce((s,t)=>s+Math.max(0,t.mfeR-t.rMult),0).toFixed(1)};
+  const held=ALL.filter(t=>t.heldPast); F.held={n:held.length,cost:+held.reduce((s,t)=>s+t.netPnl,0).toFixed(0)};
+  const byReg={}; ['Low','Normal','High','Extreme'].forEach(r=>{const l=ALL.filter(t=>t.regime===r);byReg[r]={n:l.length,e:expectancy(l)};});
+  F.reg=byReg;
+  const bySes={}; SESSIONS.forEach(s=>{const l=ALL.filter(t=>t.session===s.k);bySes[s.k]={n:l.length,e:expectancy(l),net:+l.reduce((a,t)=>a+t.netPnl,0).toFixed(0)};});
+  F.ses=bySes;
+  F.costLo=+(S.lots*OZ_PER_LOT*0.15).toFixed(0);
+  F.costHi=+(S.lots*OZ_PER_LOT*0.30).toFixed(0);
+  F.costMid=S.cost;
+}
+const INSIGHTS=[
+ {t:`Spread cost this month: ~${money0(F.costLo)}–${money0(F.costHi)} on ${money0(S.net)} of net profit. Your broker reports it as $0.00.`,go:['cost']},
+ {t:`Full-ladder fills return ${F.deep.e.toFixed(2)}R (n=${F.deep.n}). Partial fills return ${F.shallow.e.toFixed(2)}R (n=${F.shallow.n}). A full fill means price disrespected your zone.`,go:['analytics']},
+ {t:`You moved runners to breakeven before price cleared the zone on ${F.be.n} trades, giving back about ${F.be.cost}R of favourable movement.`,go:['analytics']},
+ {t:`You held past your own invalidation on ${F.held.n} trades. Those trades net ${money0(F.held.cost)}.`,go:['analytics']},
+];
+
+/* ============================ CHART ============================ */
+function chartSVG(t,opt={}){
+  const {bars,pre,exitIdx}=barsFor(t);
+  const W=340,H=192, L=8,Rp=34,T=12,B=16;
+  const pw=W-L-Rp, ph=H-T-B;
+  const inval = opt.invalidation ?? t.invalidation;
+  let lo=Math.min(...bars.map(b=>b.l),inval,t.zoneLow), hi=Math.max(...bars.map(b=>b.h),inval,t.zoneHigh);
+  if(opt.showTarget!==false){lo=Math.min(lo,t.target);hi=Math.max(hi,t.target);}
+  const pad=(hi-lo)*.10; lo-=pad; hi+=pad;
+  const X=i=>L+(i/(bars.length-1))*pw;
+  const Y=p=>T+(1-(p-lo)/(hi-lo))*ph;
+  const cw=Math.max(1.6,pw/bars.length*.56);
+  let s=`<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Price around the trade, with entries, exits and invalidation marked">`;
+  // post-exit region
+  s+=`<rect x="${X(exitIdx).toFixed(1)}" y="${T}" width="${(W-Rp-X(exitIdx)).toFixed(1)}" height="${ph}" fill="var(--ink3)" opacity=".07"/>`;
+  s+=`<text class="lbl" x="${(X(exitIdx)+4).toFixed(1)}" y="${(H-B-3).toFixed(1)}" fill="var(--ink3)">after exit</text>`;
+  // zone band
+  const zy=Y(t.zoneHigh), zh=Math.max(2,Y(t.zoneLow)-Y(t.zoneHigh));
+  s+=`<rect x="${L}" y="${zy.toFixed(1)}" width="${pw}" height="${zh.toFixed(1)}" fill="var(--c1)" opacity=".13"/>`;
+  s+=`<rect x="${L}" y="${zy.toFixed(1)}" width="${pw}" height="${zh.toFixed(1)}" fill="none" stroke="var(--c1)" stroke-opacity=".45" stroke-width="1"/>`;
+  s+=`<text class="lbl" x="${L+4}" y="${(zy+zh/2+3).toFixed(1)}" fill="var(--c1)">zone</text>`;
+  // candles (neutral: the chart is context, the trade is the subject)
+  bars.forEach((b,i)=>{
+    const x=X(i);
+    s+=`<line x1="${x.toFixed(1)}" y1="${Y(b.h).toFixed(1)}" x2="${x.toFixed(1)}" y2="${Y(b.l).toFixed(1)}" stroke="var(--ink3)" stroke-opacity=".5" stroke-width="1"/>`;
+    const y1=Y(Math.max(b.o,b.c)), y2=Y(Math.min(b.o,b.c));
+    s+=`<rect x="${(x-cw/2).toFixed(1)}" y="${y1.toFixed(1)}" width="${cw.toFixed(1)}" height="${Math.max(1,y2-y1).toFixed(1)}" fill="var(--ink3)" opacity="${b.c>=b.o?.42:.78}"/>`;
+  });
+  // target
+  if(opt.showTarget!==false){
+    s+=`<line x1="${L}" y1="${Y(t.target).toFixed(1)}" x2="${W-Rp}" y2="${Y(t.target).toFixed(1)}" stroke="var(--profit)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+    s+=`<text class="lbl" x="${L+4}" y="${(Y(t.target)-4).toFixed(1)}" fill="var(--profit)">target</text>`;
+  }
+  // invalidation
+  s+=`<line x1="${L}" y1="${Y(inval).toFixed(1)}" x2="${W-Rp}" y2="${Y(inval).toFixed(1)}" stroke="var(--loss)" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+  s+=`<text class="lbl" x="${L+4}" y="${(Y(inval)+(Y(inval)<T+18?10:-4)).toFixed(1)}" fill="var(--loss)">invalidation</text>`;
+  // entries
+  t.legs.forEach((l,i)=>{
+    const x=X(pre+i*2), y=Y(l.price);
+    s+=`<path d="M${(x-4).toFixed(1)} ${(y-3.5).toFixed(1)} L${(x+1.5).toFixed(1)} ${y.toFixed(1)} L${(x-4).toFixed(1)} ${(y+3.5).toFixed(1)} Z" fill="var(--c1)"/>`;
+  });
+  s+=`<text class="lbl" x="${Math.max(L+16,X(pre)).toFixed(1)}" y="${Math.max(T+8,Y(t.legs[0].price)-8).toFixed(1)}" fill="var(--c1)" text-anchor="middle">${t.legs.length} in</text>`;
+  // exits
+  t.exits.forEach((e,i)=>{
+    const x=X(Math.min(bars.length-1, exitIdx-(t.exits.length-1-i)*3)), y=Y(e.price);
+    s+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.4" fill="var(--s1)" stroke="var(--ink)" stroke-width="1.6"/>`;
+  });
+  const le=t.exits[t.exits.length-1];
+  s+=`<text class="lbl" x="${X(exitIdx).toFixed(1)}" y="${Math.max(T+8,Y(le.price)-9).toFixed(1)}" fill="var(--ink)" text-anchor="end">${t.exits.length} out</text>`;
+  // price axis
+  [hi-pad*.55, lo+pad*.55].forEach(p=>{
+    s+=`<text x="${W-4}" y="${(Y(p)+3).toFixed(1)}" text-anchor="end" fill="var(--ink3)" opacity=".75">${p.toFixed(1)}</text>`;
+  });
+  s+=`</svg>`;
+  return {svg:s,lo,hi,T,ph,H};
+}
+
+/* ============================ VIEWS ============================ */
+let ST={view:'home',day:null,trade:null,calMode:'pnl',rev:null};
+
+function topbar(title,back,right=''){
+  return `<div class="topbar ${back?'sep':''}">${back?`<button class="back" onclick="go('${back}')">‹ Back</button>`:''}
+    <h1>${esc(title)}</h1>${right}</div>`;
+}
+
+/* ---------- HOME ---------- */
+function vHome(){
+  const wk=TRADING.slice(-5);
+  const wkNet=+wk.reduce((s,d)=>s+d.net,0).toFixed(2);
+  const wkScore=Math.round(wk.reduce((s,d)=>s+d.score,0)/wk.length);
+  const ins=INSIGHTS[0];
+  const unrev=LAST.trades.filter(t=>!t.reviewed).length;
+  const spark=TRADING.map(d=>d.net);
+  let cum=0; const cums=spark.map(v=>cum+=v);
+  const mn=Math.min(0,...cums), mx=Math.max(...cums);
+  const pts=cums.map((v,i)=>`${(i/(cums.length-1)*100).toFixed(1)},${(26-(v-mn)/(mx-mn)*24).toFixed(1)}`).join(' ');
+
+  return topbar('LogR','',`<button class="iconbtn" onclick="go('settings')" aria-label="Settings">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.6v2M10 15.4v2M17.4 10h-2M4.6 10h-2M15.2 4.8l-1.4 1.4M6.2 13.8l-1.4 1.4M15.2 15.2l-1.4-1.4M6.2 6.2L4.8 4.8"/></svg>
+    </button>`)
+  + `<div class="scroll-inner stack fade">
+    <div class="hero">
+      <div class="eyebrow">Execution · last 5 sessions</div>
+      <div class="hero-top">
+        <div><div class="hero-fig num">${wkScore}</div>
+          <div class="hero-sub">${wk.reduce((s,d)=>s+d.trades.length,0)} zone trades · ${wk.reduce((s,d)=>s+d.trades.filter(t=>t.score.total<70).length,0)} below par</div></div>
+        <div class="grade">${gradeOf(wkScore)}</div>
+      </div>
+      <div class="meter"><i style="width:${wkScore}%"></i></div>
+    </div>
+
+    <div class="card">
+      <div class="between">
+        <div><div class="eyebrow">Withdrawn profit · 30 days</div>
+          <div class="num pos" style="font-size:26px;font-weight:600;letter-spacing:-.02em">${money(S.net)}</div></div>
+        <svg viewBox="0 0 100 28" style="width:104px;height:30px" aria-label="Cumulative profit trend">
+          <polyline points="${pts}" fill="none" stroke="var(--profit)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+          <circle cx="100" cy="${(26-(cums[cums.length-1]-mn)/(mx-mn)*24).toFixed(1)}" r="2.6" fill="var(--profit)"/>
+        </svg>
+      </div>
+      <div class="divider"></div>
+      <div class="row" style="gap:14px;flex-wrap:wrap">
+        <span class="tiny num">${S.orders.toLocaleString()} orders</span>
+        <span class="tiny num">${(S.wr*100).toFixed(1)}% win</span>
+        <span class="tiny num">PF ${S.pf.toFixed(2)}</span>
+        <span class="tiny num">${ALL.length} zone trades</span>
+      </div>
+    </div>
+
+    <div class="insight">
+      <div class="eyebrow" style="color:var(--c2)">One thing</div>
+      <p>${esc(ins.t)}</p>
+      <button class="cta" onclick="go('cost')">See the cost breakdown →</button>
+    </div>
+
+    <div class="sectionhead"><h2>September</h2><button class="link" onclick="go('calendar')">Full calendar →</button></div>
+    ${miniCal()}
+
+    <div class="sectionhead"><h2>Review</h2><span class="tiny">${fmtDate(LAST.date)}</span></div>
+    <button class="card" style="width:100%;text-align:left" onclick="startReview()">
+      <div class="between">
+        <div><div style="font-size:15px;font-weight:600">${unrev} zone trades to review</div>
+          <div class="tiny" style="margin-top:3px">Confirm setup, invalidation and confluences · about 2 min</div></div>
+        <span style="font-size:20px;color:var(--ink3)">›</span>
+      </div>
+    </button>
+    <p class="hint" style="margin-top:4px">Sample data — every figure on this page is generated.</p>
+  </div>`;
+}
+
+function miniCal(){
+  const days=TRADING.slice(-15);
+  const mx=Math.max(...TRADING.map(d=>Math.abs(d.net)));
+  return `<div class="card" style="padding:12px">
+    <div class="calgrid" style="grid-template-columns:repeat(5,1fr)">${days.map(d=>{
+      return `<button class="cell" style="background:${cellColor(d.net,mx)}" onclick="openDay(${DAYS.indexOf(d)})">
+        <span class="d">${d.date.getDate()}</span>
+        <span class="v ${d.net>0?'pos':'neg'}">${Math.abs(d.net)<.5?'0':(d.net>0?'+':'−')+Math.abs(d.net).toFixed(0)}</span></button>`;
+    }).join('')}</div></div>`;
+}
+
+/* ---------- CALENDAR ---------- */
+function vCalendar(){
+  const mx=Math.max(...TRADING.map(d=>Math.abs(ST.calMode==='pnl'?d.net:ST.calMode==='r'?d.rSum:(d.score-70))));
+  const dows=['M','T','W','T','F','S','S'];
+  const first=DAYS[0].date; const lead=(first.getDay()+6)%7;
+  return topbar('Calendar','home')+`<div class="stack fade">
+    <div class="seg" role="group" aria-label="Colour by">
+      ${[['pnl','P&L'],['r','R'],['score','Execution']].map(([k,l])=>
+        `<button aria-pressed="${ST.calMode===k}" onclick="ST.calMode='${k}';render()">${l}</button>`).join('')}
+    </div>
+    <div class="card" style="padding:13px">
+      <div class="calgrid" style="margin-bottom:4px">${dows.map(d=>`<div class="dow">${d}</div>`).join('')}</div>
+      <div class="calgrid">
+        ${Array(lead).fill('<div class="cell void"></div>').join('')}
+        ${DAYS.map((d,i)=>{
+          if(d.weekend||!d.trades.length) return `<div class="cell void"><span class="d" style="opacity:.45">${d.date.getDate()}</span></div>`;
+          const val = ST.calMode==='pnl'? d.net : ST.calMode==='r'? d.rSum : d.score-70;
+          const shown = ST.calMode==='pnl'? (Math.abs(d.net)<.5?'0':(d.net>0?'+':'−')+Math.abs(d.net).toFixed(0))
+                      : ST.calMode==='r'? (d.rSum>0?'+':'−')+Math.abs(d.rSum).toFixed(1)
+                      : gradeOf(d.score);
+          return `<button class="cell" style="background:${cellColor(val,mx)}" onclick="openDay(${i})">
+            <span class="d">${d.date.getDate()}</span>
+            <span class="v ${val>0?'pos':'neg'}">${shown}</span></button>`;
+        }).join('')}
+      </div>
+      <div class="callegend">
+        <span class="swatch" style="background:${cellColor(-mx,mx)}"></span><span>loss</span>
+        <span class="swatch" style="background:var(--s1)"></span>
+        <span class="swatch" style="background:${cellColor(mx,mx)}"></span><span>profit</span>
+        <span style="margin-left:auto">value printed in every cell</span>
+      </div>
+    </div>
+    <div class="banner"><span>ⓘ</span><span>Colour is reinforced by the printed value in each cell, so the grid never relies on hue alone.</span></div>
+  </div>`;
+}
+
+/* ---------- DAY ---------- */
+function vDay(){
+  const d=DAYS[ST.day];
+  return topbar(fmtDate(d.date),'calendar')+`<div class="stack fade">
+    <div class="kpis">
+      <div class="kpi"><div class="v ${d.net>0?'pos':'neg'}">${money(d.net,0)}</div><div class="k">Net</div></div>
+      <div class="kpi"><div class="v">${gradeOf(d.score)}</div><div class="k">Execution</div></div>
+      <div class="kpi"><div class="v">${d.trades.length}</div><div class="k">Zone trades</div></div>
+    </div>
+    <div class="row" style="flex-wrap:wrap">
+      <span class="pill">${d.regime} volatility</span>
+      <span class="pill">ATR $${d.atr.toFixed(0)}</span>
+      <span class="pill">spread cost ${money0(d.cost)}</span>
+    </div>
+    <div class="sectionhead"><h2>Zone trades</h2><span class="tiny">${d.trades.length}</span></div>
+    <div class="tlist">${d.trades.map(t=>`
+      <button class="trow" onclick="openTrade(${t.id})">
+        <span class="dirdot" style="background:${t.dir==='long'?'var(--profit)':'var(--loss)'}"></span>
+        <span class="mid">
+          <span class="t1">${t.dir==='long'?'Long':'Short'} · ${esc(t.setup)}</span>
+          <span class="t2 num">${hhmm(t.minute)} · ${t.session} · ${t.filled}/${t.layers} layers · ${t.lots} lots</span>
+        </span>
+        <span class="end">
+          <span class="p ${t.netPnl>0?'pos':'neg'}">${money(t.netPnl)}</span>
+          <span class="r">${t.rMult>0?'+':''}${t.rMult}R · ${t.score.total}/100</span>
+        </span>
+      </button>`).join('')}</div>
+  </div>`;
+}
+
+/* ---------- TRADE DETAIL ---------- */
+function vTrade(){
+  const t=ALL.find(x=>x.id===ST.trade);
+  const c=chartSVG(t);
+  const targetR=Math.abs((t.target-t.avgEntry)/t.riskDist);
+  return topbar(`${t.dir==='long'?'Long':'Short'} XAUUSD`,'day',
+    `<span class="pill ${t.netPnl>0?'p':'l'}">${money(t.netPnl)}</span>`)
+  +`<div class="stack fade">
+    <div class="chartwrap">${c.svg}</div>
+    <div class="row" style="flex-wrap:wrap">
+      <span class="pill">${hhmm(t.minute)} · ${t.session}</span>
+      <span class="pill">${t.regime} vol</span>
+      <span class="pill">${t.hold}m hold</span>
+      <span class="pill">fill depth ${(t.fillDepth*100).toFixed(0)}%</span>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="v ${t.rMult>0?'pos':'neg'}">${t.rMult>0?'+':''}${t.rMult}R</div><div class="k">Result</div></div>
+      <div class="kpi"><div class="v">${t.mfeR}R</div><div class="k">Reached (MFE)</div></div>
+      <div class="kpi"><div class="v">${targetR.toFixed(1)}R</div><div class="k">Target</div></div>
+    </div>
+
+    <div class="card">
+      <div class="between" style="margin-bottom:10px">
+        <div><div class="eyebrow">Execution score</div>
+          <div class="tiny" style="margin-top:2px">Graded on the decision, not the result</div></div>
+        <div class="grade">${t.score.total}</div>
+      </div>
+      ${t.score.rows.map(r=>{
+        const full=r.got===r.max, zero=r.got===0;
+        return `<div class="srow"><span class="mk" style="color:${full?'var(--good)':zero?'var(--crit)':'var(--warn)'}">${full?'✓':zero?'✗':'⚠'}</span>
+          <span><span class="nm">${esc(r.nm)}</span><span class="nt">${esc(r.nt)}</span></span>
+          <span class="sc">${r.got}/${r.max}</span></div>`;
+      }).join('')}
+    </div>
+
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:8px">Legs</div>
+      <div class="tblwrap"><table class="legs">
+        <thead><tr><th>Leg</th><th>Time</th><th>Price</th><th>Lots</th></tr></thead>
+        <tbody>
+          ${t.legs.map((l,i)=>`<tr><td>Entry ${i+1}</td><td>${hhmm(Math.round(l.t))}</td><td>${l.price.toFixed(2)}</td><td>${l.lots}</td></tr>`).join('')}
+          ${t.exits.map(e=>`<tr><td>${e.kind[0].toUpperCase()+e.kind.slice(1)}</td><td>${hhmm(Math.round(e.t))}</td><td>${e.price.toFixed(2)}</td><td>${e.lots}</td></tr>`).join('')}
+        </tbody>
+      </table></div>
+      <div class="divider"></div>
+      <div class="between"><span class="tiny">Avg entry</span><span class="num" style="font-size:12.5px">${t.avgEntry.toFixed(2)}</span></div>
+      <div class="between" style="margin-top:5px"><span class="tiny">Invalidation</span><span class="num" style="font-size:12.5px">${t.invalidation.toFixed(2)} · risk $${t.riskAmt.toFixed(2)}</span></div>
+    </div>
+
+    <div class="card">
+      <div class="between"><div class="eyebrow">Cost of this trade</div><span class="est">estimated</span></div>
+      <div class="between" style="margin-top:10px">
+        <span style="font-size:13px">Spread paid (${t.spread.toFixed(2)}/oz × ${t.lots} lots)</span>
+        <span class="num neg" style="font-weight:600">−$${t.spreadCost.toFixed(2)}</span>
+      </div>
+      <div class="tiny" style="margin-top:7px">That is ${(t.spreadCost/Math.max(.01,Math.abs(t.netPnl))*100).toFixed(0)}% of this trade's net result, and it appears nowhere on your statement.</div>
+    </div>
+
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:9px">Confluences detected</div>
+      <div class="chips">${t.conf.map(c=>`<span class="chip" aria-pressed="true">${esc(c)}</span>`).join('')}</div>
+    </div>
+  </div>`;
+}
+
+/* ---------- REVIEW ---------- */
+function startReview(){
+  const list=LAST.trades.slice(0,Math.min(14,LAST.trades.length));
+  ST.rev={list,i:0,t0:Date.now(),answers:list.map(()=>({setup:null,inval:null,conf:[]}))};
+  go('review');
+}
+function revTick(){
+  const el=document.getElementById('revtimer');
+  if(!el||!ST.rev){return;}
+  const s=Math.floor((Date.now()-ST.rev.t0)/1000);
+  el.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+}
+setInterval(revTick,1000);
+
+function vReview(){
+  const r=ST.rev;
+  if(!r){ ST.view='home'; return vHome(); }
+  if(r.i>=r.list.length) return vReviewDone();
+  const t=r.list[r.i], a=r.answers[r.i];
+  const inval=a.inval ?? t.invalidation;
+  const c=chartSVG(t,{invalidation:inval,showTarget:false});
+  const dist=Math.abs(t.avgEntry-inval);
+  const risk=dist*OZ_PER_LOT*t.lots;
+  const rM=t.netPnl/Math.max(.01,risk);
+  return `<div class="topbar sep">
+      <button class="back" onclick="if(confirm('Leave review?'))go('home')">‹ Exit</button>
+      <div class="dots">${r.list.map((_,i)=>`<span class="dot ${i<r.i?'done':i===r.i?'now':''}"></span>`).join('')}</div>
+      <span class="timer" id="revtimer">00:00</span>
+    </div>
+  <div class="stack fade">
+    <div class="between">
+      <span class="eyebrow">Trade ${r.i+1} of ${r.list.length}</span>
+      <span class="tiny num">${hhmm(t.minute)} · ${t.dir} · ${t.lots} lots</span>
+    </div>
+
+    <div class="chartwrap">
+      <div id="tapchart" style="cursor:crosshair">${c.svg}</div>
+    </div>
+    <p class="hint" style="margin-top:-4px">Tap the chart where the idea was invalid${a.inval?' — tap again to adjust':''}</p>
+
+    <div class="card" style="padding:13px">
+      <div class="between">
+        <div><div class="tiny">Invalidation</div>
+          <div class="num" style="font-size:17px;font-weight:600">${inval.toFixed(2)}</div></div>
+        <div style="text-align:right"><div class="tiny">Risk / result</div>
+          <div class="num" style="font-size:17px;font-weight:600">$${risk.toFixed(2)} · <span class="${rM>0?'pos':'neg'}">${rM>0?'+':''}${rM.toFixed(2)}R</span></div></div>
+      </div>
+      ${a.inval?'':`<div class="tiny" style="margin-top:8px">Proposed from your zone geometry. Confirm or tap to adjust.</div>`}
+    </div>
+
+    <div>
+      <div class="eyebrow" style="margin-bottom:8px">Setup</div>
+      <div class="chips">${SETUPS.map(s=>`<button class="chip" aria-pressed="${a.setup===s}" onclick="pickSetup('${s}')">${s}</button>`).join('')}</div>
+    </div>
+
+    <div>
+      <div class="eyebrow" style="margin-bottom:8px">Confluences <span style="text-transform:none;letter-spacing:0;font-weight:400">— ${t.conf.length} auto-detected</span></div>
+      <div class="chips">${CONFLUENCES.map(cf=>{
+        const on=a.conf.length?a.conf.includes(cf):t.conf.includes(cf);
+        return `<button class="chip" aria-pressed="${on}" onclick="toggleConf('${cf}')">${cf}</button>`;
+      }).join('')}</div>
+    </div>
+
+    <button class="btn" onclick="nextRev()">${r.i===r.list.length-1?'Finish review':'Next trade'}</button>
+    <button class="btn ghost" onclick="nextRev(true)">Skip</button>
+  </div>`;
+}
+
+function vReviewDone(){
+  const r=ST.rev, secs=Math.floor((Date.now()-r.t0)/1000);
+  const per=(secs/r.list.length).toFixed(1);
+  const pass=secs<=120;
+  return topbar('Review complete','home')+`<div class="stack fade" style="padding-top:18px">
+    <div class="card" style="text-align:center;padding:26px 16px">
+      <div class="eyebrow">Time taken</div>
+      <div class="done-fig ${pass?'pos':'neg'}">${String(Math.floor(secs/60)).padStart(2,'0')}:${String(secs%60).padStart(2,'0')}</div>
+      <div class="tiny" style="margin-top:6px">${r.list.length} zone trades · ${per}s each</div>
+      <div style="margin-top:16px;font-size:13.5px;line-height:1.5">${pass
+        ? 'Inside the two-minute budget. The review flow works at this frequency.'
+        : 'Over the two-minute budget — the design brief says cut inputs until it fits.'}</div>
+    </div>
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:9px">What that produced</div>
+      ${[['Zone trades annotated',r.list.length],
+         ['Invalidation levels confirmed',r.answers.filter(a=>a.inval!==null).length+' adjusted, '+r.answers.filter(a=>a.inval===null).length+' accepted as proposed'],
+         ['Setups tagged',r.answers.filter(a=>a.setup).length],
+         ['Confluence sets confirmed',r.answers.filter(a=>a.conf.length).length]
+        ].map(([k,v])=>`<div class="between" style="padding:7px 0;border-top:1px solid var(--line)">
+          <span style="font-size:13px">${k}</span><span class="num" style="font-size:13px">${v}</span></div>`).join('')}
+    </div>
+    <button class="btn" onclick="go('home')">Done</button>
+  </div>`;
+}
+
+function pickSetup(s){ST.rev.answers[ST.rev.i].setup=s;render();}
+function toggleConf(c){
+  const a=ST.rev.answers[ST.rev.i], t=ST.rev.list[ST.rev.i];
+  if(!a.conf.length) a.conf=[...t.conf];
+  const i=a.conf.indexOf(c); i>=0?a.conf.splice(i,1):a.conf.push(c);
+  render();
+}
+function nextRev(skip){
+  const r=ST.rev;
+  if(!skip) r.list[r.i].reviewed=true;
+  r.i++; render(); window.scrollTo(0,0);
+  const sc=document.querySelector('.scroll'); if(sc) sc.scrollTop=0;
+}
+function bindTap(){
+  const host=document.getElementById('tapchart'); if(!host||!ST.rev) return;
+  const svg=host.querySelector('svg'); if(!svg) return;
+  const t=ST.rev.list[ST.rev.i];
+  const meta=chartSVG(t,{invalidation:ST.rev.answers[ST.rev.i].inval??t.invalidation,showTarget:false});
+  svg.addEventListener('click',e=>{
+    const rect=svg.getBoundingClientRect();
+    const yv=(e.clientY-rect.top)/rect.height*meta.H;
+    const frac=(yv-meta.T)/meta.ph;
+    const price=meta.hi-(meta.hi-meta.lo)*Math.max(0,Math.min(1,frac));
+    ST.rev.answers[ST.rev.i].inval=+price.toFixed(2);
+    render();
+  });
+}
+
+/* ---------- COST ---------- */
+function vCost(){
+  const lo=F.costLo, hi=F.costHi, mid=F.costMid;
+  const pctLo=(lo/S.net*100), pctHi=(hi/S.net*100);
+  const avgWinMove=S.avgWin/(OZ_PER_LOT*(S.lots/ALL.length));
+  const proCost=S.lots*0.20*OZ_PER_LOT, rawCost=S.lots*(0.05*OZ_PER_LOT+7);
+  return topbar('Cost','home')+`<div class="stack fade">
+    <div class="card">
+      <div class="eyebrow">Your statement says</div>
+      <div class="num" style="font-size:34px;font-weight:600;margin:4px 0 2px">$0.00</div>
+      <div class="tiny">Commission $0.00 · Swap $0.00 — a commission-free account reports no trading cost</div>
+      <div class="divider"></div>
+      <div class="eyebrow">What the spread actually cost</div>
+      <div class="num neg" style="font-size:34px;font-weight:600;margin:4px 0 2px">${money0(lo)}–${money0(hi)}</div>
+      <div class="tiny">${pctLo.toFixed(0)}–${pctHi.toFixed(0)}% of your ${money0(S.net)} net profit</div>
+      <div class="bar" style="margin-top:14px">
+        <i style="width:${Math.min(100,pctLo)}%;background:var(--loss)"></i>
+        <i style="width:${Math.min(100-pctLo,pctHi-pctLo)}%;background:var(--loss);opacity:.45"></i>
+      </div>
+      <div class="between" style="margin-top:6px"><span class="tiny">spread cost</span><span class="tiny">net profit</span></div>
+    </div>
+
+    <div class="banner"><span>ⓘ</span><span>A range, not a point estimate: it is not yet reconciled whether reported volume counts one leg or both. <b>Every value in the range is a large share of net profit</b>, so the conclusion holds either way.</span></div>
+
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:10px">Cost as a share of the move you reach for</div>
+      <div class="between"><span style="font-size:13px">Average winning move</span><span class="num">$${avgWinMove.toFixed(2)}</span></div>
+      <div class="between" style="margin-top:6px"><span style="font-size:13px">Spread paid per round trip</span><span class="num">$0.15–0.30</span></div>
+      <div class="divider"></div>
+      <div style="font-size:14px;line-height:1.5"><b>${(0.22/avgWinMove*100).toFixed(0)}% of every winning move is gone before you enter</b> — and paid again on every loser.</div>
+    </div>
+
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:10px">Account type · at ${S.lots.toFixed(1)} lots / month</div>
+      <table class="costgrid">
+        <thead><tr><th>Type</th><th>Spread</th><th>Commission</th><th>Monthly</th></tr></thead>
+        <tbody>
+          <tr><td>Pro <span class="pill" style="margin-left:4px">current</span></td><td>~$0.20</td><td>none</td><td class="neg">${money0(proCost)}</td></tr>
+          <tr><td>Raw Spread</td><td>~$0.05</td><td>$3.50/lot/side</td><td>${money0(rawCost)}</td></tr>
+        </tbody>
+      </table>
+      <div class="divider"></div>
+      <div style="font-size:14px;line-height:1.5">Difference: <b class="pos">${money0(proCost-rawCost)}/month</b> — about ${((proCost-rawCost)/S.net*100).toFixed(0)}% more net profit for no change in how you trade.</div>
+      <div class="tiny" style="margin-top:8px">Worth verifying against your own measured spread. Advertised spreads differ from paid spreads, and tighter quotes can come with worse fills.</div>
+    </div>
+
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:10px">Minimum viable target</div>
+      <div class="num" style="font-size:28px;font-weight:600">$${(()=>{const k=S.avgWin/S.avgLoss;return (k*0.22/(S.wr*k-(1-S.wr))).toFixed(2);})()}</div>
+      <div class="tiny" style="margin-top:4px">At your ${(S.wr*100).toFixed(0)}% win rate and ${(S.avgWin/S.avgLoss).toFixed(2)} payoff ratio, a scalp targeting less than this is negative after costs.</div>
+    </div>
+  </div>`;
+}
+
+/* ---------- SETTINGS ---------- */
+function vSettings(){
+  const cvd=document.documentElement.getAttribute('data-cvd')==='on';
+  return topbar('Settings','home')+`<div class="stack fade">
+    <div class="card">
+      <div class="between">
+        <div style="flex:1"><div style="font-size:14px;font-weight:600">Colour-safe profit / loss</div>
+          <div class="tiny" style="margin-top:3px">Swaps loss from red to orange. The default pair measures ΔE 6.5 under protanopia; this one measures 9.4.</div></div>
+        <button class="chip" aria-pressed="${cvd}" onclick="toggleCVD()">${cvd?'On':'Off'}</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:8px">About this prototype</div>
+      <div style="font-size:13.5px;line-height:1.55;color:var(--ink2)">
+        Every figure is synthetic — generated to match the shape of a high-frequency XAUUSD account
+        (~54% win rate, profit factor ~1.5, 0.01–0.05 lots, layered zone entries with partial exits).
+        No real account data is used anywhere.
+      </div>
+      <div class="divider"></div>
+      <div class="tiny">Palette validated for colour-vision deficiency · phone-first · dark and light themes follow your system setting.</div>
+    </div>
+  </div>`;
+}
+function toggleCVD(){
+  const r=document.documentElement;
+  r.setAttribute('data-cvd', r.getAttribute('data-cvd')==='on'?'off':'on');
+  render();
+}
+
+/* ---------- ROUTER ---------- */
+const TABS=[
+  ['home','Home','M3 9l7-6 7 6v9a1 1 0 0 1-1 1h-4v-5H8v5H4a1 1 0 0 1-1-1z'],
+  ['calendar','Calendar','M3 5h14v13H3zM3 9h14M7 3v3M13 3v3'],
+  ['review','Review','M4 4h12v12H4zM7 8h6M7 11h4'],
+  ['cost','Cost','M10 3v14M6.5 6.5h5a2.5 2.5 0 0 1 0 5h-3a2.5 2.5 0 0 0 0 5h5'],
+  ['settings','More','M3 6h14M3 10h14M3 14h14'],
+];
+function go(v){ if(v==='review'&&(!ST.rev||ST.rev.i>=ST.rev.list.length)){startReview();return;} ST.view=v; render(); const sc=document.querySelector('.scroll'); if(sc)sc.scrollTop=0; }
+function openDay(i){ST.day=i;ST.view='day';render();}
+function openTrade(id){
+  ST.trade=id;
+  if(ST.day===null) ST.day=DAYS.findIndex(d=>d.trades.some(t=>t.id===id));
+  ST.view='trade';render();
+}
+function render(){
+  const V={home:vHome,calendar:vCalendar,day:vDay,trade:vTrade,review:vReview,cost:vCost,settings:vSettings};
+  const html=(V[ST.view]||vHome)();
+  document.getElementById('view').innerHTML=html;
+  // move the topbar out of the scroller
+  const vw=document.getElementById('view'), tb=vw.querySelector('.topbar');
+  const top=document.getElementById('top'); top.innerHTML='';
+  if(tb){ top.appendChild(tb); }
+  document.getElementById('tabs').innerHTML=TABS.map(([k,l,d])=>
+    `<button class="tab" ${ST.view===k?'aria-current="page"':''} onclick="go('${k}')">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>
+      <span>${l}</span></button>`).join('');
+  if(ST.view==='review') {bindTap(); revTick();}
+}
+render();
+</script>
