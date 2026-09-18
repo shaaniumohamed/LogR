@@ -45,6 +45,7 @@ change what you do tomorrow. LogR attacks both.
 | [13 — XAUUSD](docs/13-xauusd.md) | Gold specialisation: volatility regime, news proximity, spread conditions |
 | [14 — High Frequency](docs/14-high-frequency.md) | Redesign for ~100 orders/day; supersedes parts of 10 and 11 |
 | [15 — Methodology](docs/15-methodology.md) | Zone trades, automatic structure annotation, confluence marginal value |
+| [16 — Cost & Capital](docs/16-cost-and-capital.md) | Measuring the spread the broker reports as zero; working-capital accounts |
 
 ## Design principles
 

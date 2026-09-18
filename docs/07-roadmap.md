@@ -30,6 +30,11 @@ review flow before committing to a schema. Cheap to throw away, expensive to ski
 - `executions → positions → trades` derivation, including `INOUT` and `OUT_BY`
 - Golden-fixture test suite (start with **your own** statements)
 - Calendar heatmap · equity curve · the core eight stats · trades table with filters
+- **Volume-based cost estimate** (`16-cost-and-capital.md`) — computable from
+  import data alone, and likely the single most valuable number in the app. Do not
+  defer it to the quote-capture milestone
+- **Working-capital account mode** for accounts that sweep profits and reset daily,
+  where conventional equity-curve and drawdown maths is meaningless
 - Trade detail page: notes, tags, screenshot upload
 
 **Done when:** you import a year of your real history, the net P&L matches your
