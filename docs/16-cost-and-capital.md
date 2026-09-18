@@ -4,6 +4,30 @@ Two findings from real broker data, both of which change what the app must compu
 
 ---
 
+## 0. Correction: the spread is inside the fill, and net profit is already after it
+
+An earlier draft of this document framed spread as a cost sitting *on top of*
+reported net profit. That was wrong, and the distinction matters.
+
+The spread is embedded in the fill price. A buy fills at the ask and is marked at
+the bid, so the position opens showing a floating loss equal to the spread. There
+is no separate charge and nothing is deducted afterwards — **every closed trade's
+reported P&L is already net of spread.**
+
+So the correct statement is not "spread took X% of your profit". It is:
+
+> **Gross edge = reported net + spread paid.** The trader keeps the net; the spread
+> is the hurdle each trade had to clear to get there.
+
+Same arithmetic, very different claim. The app must use the second framing, because
+the first implies money went missing that the trader could recover by noticing it —
+and it can't. What *is* recoverable is the size of the hurdle, which is set by
+account type, and that is where the actionable value sits.
+
+Presentation rule: show **net, spread, and gross-before-spread as three bars**, and
+label the spread bar as a hurdle rather than a deduction. Never print a bare
+"spread cost as % of net profit" figure without that context.
+
 ## 1. The broker reports trading cost as zero. It isn't.
 
 On a commission-free account (Exness Pro and Standard), the broker's own
@@ -42,10 +66,13 @@ number, and the band is usually narrow enough to be decisive anyway.
 Worked shape (fully synthetic example — a high-frequency gold account turning over
 ~40 lots/month against ~$1,000 of monthly net profit):
 
+Expressed as a share of **gross edge** (net + spread), which is the honest
+denominator — not as a share of net profit:
+
 | | spread $0.15 | $0.20 | $0.30 |
 |---|---|---|---|
-| Volume counts both legs | ~30% of net profit | ~40% | ~60% |
-| Volume counts opens only | ~60% | ~80% | ~100%+ |
+| Volume counts both legs | ~23% of gross edge | ~29% | ~37% |
+| Volume counts opens only | ~37% | ~44% | ~50% |
 
 The point of presenting it as a grid: **the conclusion survives every cell.** Even
 on the most favourable assumption the cost is a large fraction of net profit, so
