@@ -11,12 +11,14 @@ Web app, deployable on Vercel.
 Trade journals fail for two reasons: logging is tedious, and the output doesn't
 change what you do tomorrow. LogR attacks both.
 
-- **Auto-sync from MT5** via an Expert Advisor on your terminal, which captures
-  what a downloaded statement throws away: your **initial stop loss at the moment
-  of fill**, the spread you paid, your live equity curve, and automatic chart
-  screenshots at entry and exit.
-- **Everything normalised to R**, so a 0.02-lot scalp and a 2-lot swing are
-  comparable.
+- **Sync without installing anything**: your broker already emails you daily
+  statements — auto-forward them and they import themselves. Add a read-only
+  investor-password bridge for near-real-time sync that records every stop move.
+- **A risk model that fits discretionary trading** — no fixed stop required.
+  Tap where the idea was invalidated and get real R, plus a measure of whether you
+  actually exit where you said you would.
+- **Layering, partials and runners as first-class citizens** — is your runner
+  actually paying, or should you take full TP?
 - **Playbooks** turn journaling into strategy validation — per-setup expectancy
   with confidence intervals, and kill-criteria alerts when a setup has no edge.
 - **Auto-detected mistakes with a price tag**: "moved stop against me — 14 trades,
@@ -30,12 +32,14 @@ change what you do tomorrow. LogR attacks both.
 |---|---|
 | [01 — Strategy](docs/01-strategy.md) | Who it's for, positioning, the persuasion model and its ethics |
 | [02 — Features](docs/02-features.md) | The full brainstorm, prioritised into build tiers with reasoning |
-| [03 — MT5 Integration](docs/03-mt5-integration.md) | **The hard part.** Every sync option analysed; the deal→position→trade problem |
+| [03 — Data Ingestion](docs/03-mt5-integration.md) | **The hard part.** Every sync option analysed; the deal→position→trade problem |
 | [04 — Architecture](docs/04-architecture.md) | Vercel-native stack, serverless constraints, derivation pipeline |
 | [05 — Data Model](docs/05-data-model.md) | Postgres schema draft |
 | [06 — Metrics Spec](docs/06-metrics-spec.md) | Exact definition of every statistic, and the honesty constraints |
 | [07 — Roadmap](docs/07-roadmap.md) | M0–M6, with a go/no-go gate at M1 |
 | [08 — Open Questions](docs/08-open-questions.md) | Decisions needed before design starts |
+| [09 — Risk Model](docs/09-risk-model.md) | Journaling a discretionary trader who uses no fixed stop |
+| [10 — UI/UX](docs/10-ui-ux.md) | Phone-first design direction and screen inventory |
 
 ## Design principles
 

@@ -100,20 +100,77 @@ Where the trader's broker or prop firm offers something better than MT5:
 - **Verdict:** design the ingest layer platform-agnostic from day one so these drop
   in as adapters. Do not build them until a user asks.
 
-## 2. Decision
+### Option F — Emailed statement ingestion  ★ NEW PRIMARY for phone-only traders
+Exness (like most brokers) **emails daily and monthly account statements** to the
+registered address, automatically, forever, with no setup. A Gmail/Outlook filter
+auto-forwards them to a unique per-user address (`u_a1b2c3@in.logr.app`); an
+inbound-email webhook (Resend/Postmark/SendGrid) hands us the attachment; we parse
+and ingest.
 
-| Phase | Path | Purpose |
+- **Pros:** genuinely zero-install and zero-credential. Works if the trader never
+  touches a desktop. Nothing to remember — the broker pushes the data at us on a
+  schedule. Self-healing: monthly statements re-cover the whole month, so any
+  missed day repairs itself. Costs nothing.
+- **Cons:** end-of-day granularity, not real-time. No initial SL, no equity
+  granularity, no screenshots. Requires a one-time mail-filter setup (~2 min, and
+  we can generate the exact Gmail filter for the user to click).
+- **Verdict:** for a phone-only trader this is the best automatic path in
+  existence, and for an intraday trader who reviews in the evening, end-of-day
+  latency costs nothing. **Ship it in v0.1 alongside manual import.**
+
+## 2. Decision (revised for a phone-first Exness trader)
+
+The original plan led with an Expert Advisor. That assumed a desktop or VPS
+terminal. For a trader who works from the MT5 mobile app, the EA is unavailable,
+so the ranking inverts:
+
+| Phase | Path | Latency | Gets initial SL? | User effort |
+|---|---|---|---|---|
+| v0.1 | **C — Exness PA CSV import** | manual | no | drag & drop, one-off backfill |
+| v0.1 | **F — emailed statements** | end of day | no | one mail filter, then nothing |
+| v0.2 | **D — MetaApi bridge** (investor password) | ~30s | **yes, for live trades** | paste read-only password once |
+| later | **A — EA** | instant | yes | only if a desktop/VPS terminal ever appears |
+| later | **B/D-self-hosted** | ~30s | yes | our own VPS, if MetaApi cost bites |
+
+### Why MetaApi earns its place here
+It was ranked last when an EA was viable. For a phone-only trader it is the only
+way to get the things that make the analytics good, and two facts make it cheap:
+
+1. **One account is free.** Additional accounts are a small flat monthly fee —
+   fine for "me + a few friends".
+2. **Investor password is read-only.** It cannot place, modify or close a trade,
+   and it cannot withdraw. The blast radius of a leak is "someone can see your
+   trades". That is a materially different risk from a master password, and it is
+   the only credential we would ever accept.
+
+**The polling trick that recovers the moat:** poll `get_positions()` every 15–30s.
+The first time a position appears we record its SL/TP — so when you move your stop
+to breakeven after taking a partial, we capture **both** the original state and the
+move, with timestamps. We can't get the initial SL for *history*, but from
+connection day forward we get it for every live trade, plus an equity snapshot on
+every poll → real equity curve, real intraday drawdown, real prop-firm gauges.
+
+### Self-hosted alternative (v2, if per-account cost becomes annoying)
+One ~$15/mo Windows VPS running MT5 + a Python poller using the `MetaTrader5`
+package, calling `mt5.login(login, investor_password, server)` per account in
+rotation. This is "self-hosted MetaApi" and is economic past roughly 5–8 accounts.
+It cannot live on Vercel — it's a small always-on companion service (Fly.io/Hetzner
++ Windows, or a Windows VPS). Worth building only once the user count justifies it.
+
+## 2b. Exness specifics
+
+| Source | Format | Notes |
 |---|---|---|
-| v0.1 | **C — statement import** | Onboarding hook, backfill, works for everyone |
-| v0.2 | **A — MQL5 EA** | Real-time auto-sync, initial SL, screenshots, equity curve |
-| v1.x | **E — cTrader adapter** | Second platform, proves the adapter abstraction |
-| v1.x | **D — MetaApi** (paid tier) | Mobile-only / install-averse users |
-| v2 | **B — desktop agent** | Power users, multi-account, WebRequest refuseniks |
+| PA → Trading → History of orders → **Download CSV** | CSV | **Capped at 1,000 records** — the importer must chunk by date range automatically and stitch the results |
+| PA → account statement with custom dates | HTML/PDF | Better for long backfills than the CSV cap allows |
+| **Daily + monthly statements emailed automatically** | attachment | The Option F pipeline. Zero ongoing effort |
+| MT5 mobile → History → scroll to end → **Save as PDF** (iOS) | PDF | Fragile to parse; last resort only |
+| Exness server names | `Exness-MT5Real`, `-Real2`… `-MT5Trial` | Needed for any bridge login; ask for it explicitly at connect time |
 
-Critical design rule: **A and C must converge on the same normalised
-`executions` rows**, with the EA's richer fields treated as optional enrichment.
-The same trade arriving from both paths must dedupe, not duplicate, and the EA's
-version must win on conflict.
+Exness runs several account types (Standard, Raw Spread, Zero, Pro) with different
+commission structures. Raw Spread and Zero charge per-lot commission while
+Standard bakes it into the spread — so **cost analysis must know the account type**
+or the "what your broker costs you" report will be wrong. Capture it at setup.
 
 ## 3. The data model problem nobody warns you about
 

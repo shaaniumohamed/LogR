@@ -107,7 +107,20 @@ spread cost (entry price vs mid at fill, EA-captured).
 "Swap has cost you £612 this year — 23% of your gross profit. Your average hold
 is 4.2 days; on your top 3 symbols the carry is negative."
 
-### 1.7 Daily / weekly review ritual
+### 1.7 Style-specific analytics (layering, partials, runners)  ⭐
+Because the target trader layers entries, scales out, and moves to breakeven, these
+are core rather than edge cases. Full treatment in `09-risk-model.md`:
+- **Runner analysis** — expectancy of the partial vs the runner, separately.
+  Answers "is letting it run actually paying, or should I take full TP?"
+- **Breakeven-stop cost** — how often moving to BE knocked you out of a trade that
+  then reached target, in R.
+- **Layering analysis** — did scaling in improve the average price by more than the
+  extra size cost on the ones that lost?
+- **Invalidation discipline** — did you exit where you said the idea died?
+- **Scalp cost economics** — what share of gross edge spread and commission eat,
+  and the minimum target size below which a scalp is not worth taking.
+
+### 1.8 Daily / weekly review ritual
 - **Pre-market** (2 min): bias, key levels, what I'm allowed to trade today,
   max trades, max loss.
 - **Post-market** (3 min): auto-filled stats + 3 prompts (*what did I do well /

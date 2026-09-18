@@ -5,6 +5,13 @@ and every milestone after that is judged by whether you actually kept using it.
 
 ---
 
+## M-1 — Clickable prototype (~3 days)  ← *do this first*
+High-fidelity mockup with realistic fake CFD data: home, calendar, trade detail,
+and the review flow. No backend. Purpose: settle the UI direction and time the
+review flow before committing to a schema. Cheap to throw away, expensive to skip.
+
+---
+
 ## M0 — Foundations (~1 week)
 - Next.js + TypeScript + Tailwind + shadcn scaffold, deployed to Vercel
 - Neon Postgres, Drizzle schema + migrations, seed script
@@ -17,7 +24,9 @@ and every milestone after that is judged by whether you actually kept using it.
 ---
 
 ## M1 — Import + first dashboard (~2 weeks)  ← *the "would I use this" checkpoint*
-- MT5 HTML statement parser (client-side), with reconciliation screen
+- **Exness PA CSV parser** (client-side) with automatic date-chunking around the
+  1,000-row export cap, plus the generic MT5 HTML statement parser
+- Reconciliation screen before any import commits
 - `executions → positions → trades` derivation, including `INOUT` and `OUT_BY`
 - Golden-fixture test suite (start with **your own** statements)
 - Calendar heatmap · equity curve · the core eight stats · trades table with filters
@@ -31,21 +40,31 @@ feature list is wrong and we re-plan rather than building more.
 
 ---
 
-## M2 — MT5 auto-sync (~2–3 weeks)
-- `LogR-Sync.mq5`: handshake, backfill, `OnTradeTransaction` capture, file-backed
-  queue, timer flush, reconciliation sweep
+## M2 — Automatic ingestion, no install (~2 weeks)
+- **Emailed-statement pipeline**: unique inbound address per user, inbound-email
+  webhook, attachment parse, idempotent merge. Plus a generated Gmail/Outlook
+  filter the user clicks once.
 - `POST /api/v1/ingest` with HMAC auth, idempotent upsert, rate limiting
-- Onboarding wizard for the WebRequest whitelist, with a "Test connection" button
-- Equity snapshots → real equity curve and intraday drawdown
-- Auto chart screenshots at entry/exit → presigned blob upload
+- **MetaApi bridge** (investor password, free for the first account): poll history
+  + open positions every ~30s → captures SL at first sight of a position, every
+  stop move with a timestamp, and an equity snapshot per poll
+- Equity curve and intraday drawdown from those snapshots
 
-**Done when:** you close a trade in MT5 and it appears in the app, with the right
-initial stop and a chart image, without touching anything.
+**Done when:** you close a trade on your phone and it is in the app that evening
+with no action from you — and, once the bridge is connected, within a minute,
+with your stop moves recorded.
+
+*(The MQL5 EA from the original plan moves to "later" — it needs a desktop or VPS
+terminal, which isn't the current setup. The ingest API is designed so the EA drops
+in as one more source if that ever changes.)*
 
 ---
 
-## M3 — R, playbooks, mistakes (~2–3 weeks)
-- R-multiple everywhere, with `risk_source` honesty flags
+## M3 — Risk model, playbooks, mistakes (~2–3 weeks)
+- **Four-model risk engine** (`hard_sl` / `invalidation` / `fixed_fraction` /
+  `mae_proxy`) with `risk_source` honesty flags throughout the UI
+- **Tap-the-invalidation-level-on-chart** review interaction
+- Runner / breakeven / layering / scalp-cost analyses (`09-risk-model.md`)
 - Playbook CRUD, trade→playbook tagging with auto-suggestions, per-playbook stats
   with confidence intervals and kill-criteria alerts
 - Mistake taxonomy + **auto-detection** (no stop, moved stop, oversized, revenge,
@@ -61,6 +80,7 @@ initial stop and a chart image, without touching anything.
 - Rules-as-data, per-trade evaluation, daily discipline grade
 - Daily pre-market / post-market review flows, voice notes + transcription
 - Prop-firm challenge tracker with live gauges and Monte Carlo pass probability
+  (requires the MetaApi bridge for live equity — statements alone give end-of-day only)
 - Streaks (process only), email digest via Vercel Cron
 - Browser push + Telegram alerts for protective events
 
