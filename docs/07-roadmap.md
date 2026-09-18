@@ -6,9 +6,14 @@ and every milestone after that is judged by whether you actually kept using it.
 ---
 
 ## M-1 — Clickable prototype (~3 days)  ← *do this first*
-High-fidelity mockup with realistic fake CFD data: home, calendar, trade detail,
-and the review flow. No backend. Purpose: settle the UI direction and time the
-review flow before committing to a schema. Cheap to throw away, expensive to skip.
+High-fidelity mockup with realistic synthetic XAUUSD data: home, calendar,
+zone-trade detail, review flow, cost screen. No backend. Full scope, data
+requirements and success test in `18-design-system.md` §8.
+
+Purpose: settle the visual direction and **time the review flow** before committing
+to a schema. It answers three things a document cannot — is the 2-minute review
+real, does an execution score as the headline motivate or preach, does the calendar
+create the pull it is supposed to. Cheap to throw away, expensive to skip.
 
 ---
 
