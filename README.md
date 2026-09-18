@@ -47,6 +47,22 @@ change what you do tomorrow. LogR attacks both.
 | [15 — Methodology](docs/15-methodology.md) | Zone trades, automatic structure annotation, confluence marginal value |
 | [16 — Cost & Capital](docs/16-cost-and-capital.md) | Measuring the spread the broker reports as zero; working-capital accounts |
 
+## Data handling rule for this repo
+
+**This repository is public. No real account data goes in it — ever.**
+
+- No account numbers, logins, server names, broker account nicknames or balances
+- No real P&L figures, volumes, or statement extracts, in docs, commits or tests
+- Worked examples in docs are **synthetic**, and say so
+- Test fixtures must be anonymised before they are committed: account identifiers
+  replaced, figures scaled by an undisclosed factor, dates shifted. A fixture that
+  cannot be anonymised does not get committed — it stays local and the test skips
+- Credentials of any kind (API keys, investor passwords) never touch the repo,
+  and the application never stores a broker master password anywhere
+
+Analysis of real data happens outside version control. Only the **design
+conclusions** it produces get written down here.
+
 ## Design principles
 
 1. **Raw executions are immutable; everything else is derived and rebuildable.**

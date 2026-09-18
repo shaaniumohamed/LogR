@@ -39,15 +39,18 @@ against a period where the deal-level data is known. Until it is, present a
 **range, not a point estimate** — an honest band beats a precise-looking wrong
 number, and the band is usually narrow enough to be decisive anyway.
 
-Worked shape (illustrative figures, one month of a small high-frequency account):
+Worked shape (fully synthetic example — a high-frequency gold account turning over
+~40 lots/month against ~$1,000 of monthly net profit):
 
 | | spread $0.15 | $0.20 | $0.30 |
 |---|---|---|---|
-| Volume counts both legs | 23% of net profit | 30% | 45% |
-| Volume counts opens only | 45% | 61% | 91% |
+| Volume counts both legs | ~30% of net profit | ~40% | ~60% |
+| Volume counts opens only | ~60% | ~80% | ~100%+ |
 
-Even the most favourable cell is a quarter of net profit. That is the finding,
-and it survives every assumption in the grid.
+The point of presenting it as a grid: **the conclusion survives every cell.** Even
+on the most favourable assumption the cost is a large fraction of net profit, so
+the finding does not depend on resolving the ambiguity — which means it can be
+shipped before the ambiguity is resolved.
 
 **Design consequence:** ship the volume-based estimate in **M1**, from import data
 alone. Quote capture upgrades it from a band to an exact figure later. Do not make
