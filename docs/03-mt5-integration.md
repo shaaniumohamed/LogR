@@ -297,6 +297,31 @@ close a position without the user having armed that specific behaviour.
 **This feature touches real money: it needs its own test plan on demo accounts
 and very conservative defaults (warn-only first, block second, close last).**
 
+## 5b. Exness export formats — which one is actually usable
+
+Exness offers more than one export and they are **not** interchangeable:
+
+| Export | Contains | Usable for the journal? |
+|---|---|---|
+| PA → **Trading Analytics / summary report** (PDF) | Account-level aggregates only: gain, drawdown, profit factor, gross profit/loss, commissions, swaps, deposits/withdrawals, trades-per-week, average hold | **No** — no per-deal rows. Useful only for reconciliation and as a header record |
+| PA → Trading → **History of orders → Download CSV** | Per-order rows | **Yes** — the primary import. 1,000-row cap, so chunk by date |
+| PA → **account statement**, custom dates | Per-deal rows | **Yes** — better for long backfills |
+| Emailed daily/monthly statements | Per-deal rows | **Yes** — the automatic pipeline |
+| MT5 mobile → Save as PDF (iOS) | Formatted report | Last resort; fragile |
+
+**Onboarding consequence:** the summary PDF is the easiest thing for a user to
+find and send, and it is the one that won't work. The import screen must name the
+exact export required, with a screenshot of the menu path, and must detect a
+summary-only report and say so clearly rather than failing with a parse error.
+
+**Reconciliation gift:** the summary report is still worth accepting as an optional
+upload, because it provides an independent check:
+```
+deposits − withdrawals + net_profit == closing_balance
+```
+If our parsed deals don't reproduce the broker's own gross profit, gross loss and
+closing balance, the import is wrong and we say so before saving anything.
+
 ## 6. Statement parser notes (Option C)
 
 - Parse **client-side** with `DOMParser`. A 5MB HTML statement is trivial in the

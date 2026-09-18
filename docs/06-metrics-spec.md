@@ -51,6 +51,41 @@ r_multiple  = net_pnl / risk_amount
   Includes open floating loss. **This is what prop firms measure and what actually
   blows accounts.** Display both, labelled clearly; default to equity when available.
 
+### Return measurement with frequent cash transfers  ⭐ required
+Small accounts often see many deposits and withdrawals over a short period. A
+simple percentage gain is then close to meaningless: withdrawing profits shrinks
+the denominator and inflates the reported return, and a "600% gain" can sit on top
+of a balance far smaller than the total deposited.
+
+**Requirement: compute time-weighted return (TWR), not simple gain.**
+```
+Break the series at every cash transfer. For each sub-period:
+    r_i = (equity_end − flow_i) / equity_start − 1
+TWR = Π(1 + r_i) − 1
+```
+Also report **money-weighted return (IRR)** alongside it, since the two answer
+different questions: TWR measures the strategy, IRR measures what the trader
+actually earned on the capital they had at risk.
+
+Display both, plus the raw cash-flow ledger (total in, total out, net). Never show
+a headline percentage that a withdrawal could have manufactured. Broker-supplied
+"gain" figures should be treated as an input to reconcile against, not as truth.
+
+### Prop-readiness check  ⭐ required before any challenge
+Given the user's own history, evaluate it against the rule set of a target prop
+firm *retrospectively*:
+
+- Would the max daily loss have been breached, and on how many days?
+- Would the max total drawdown have been breached, and when?
+- Would the consistency rule have failed (largest day as % of total profit)?
+- Is the historical max drawdown within, say, half the firm's limit?
+
+Output one sentence: *"On these rules your last N weeks would have breached on day
+X."* A trader planning a challenge needs this **before** paying a fee, and it is
+computable from data already imported. High-variance retail equity curves routinely
+exceed prop limits by an order of magnitude, and this is the cheapest possible way
+to find that out.
+
 ## System quality
 
 | Metric | Formula | Interpretation |
