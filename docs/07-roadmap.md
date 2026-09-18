@@ -83,6 +83,9 @@ in as one more source if that ever changes.)*
   (requires the MetaApi bridge for live equity — statements alone give end-of-day only)
 - Streaks (process only), email digest via Vercel Cron
 - Browser push + Telegram alerts for protective events
+- **In-session interventions** (`11-behavioural-design.md` §2): personal tilt
+  threshold, size-increase-after-loss detection, naked-position warning,
+  invalidation-breach alert. Warn-only defaults, escalation strictly opt-in
 
 **Done when:** the dashboard headline is a discipline grade, not a P&L number.
 
@@ -98,9 +101,15 @@ in as one more source if that ever changes.)*
 
 ---
 
+## M5b — Accountability group (~1 week)
+Private group for you + friends. Shared discipline grades, streaks and rule-break
+counts. **Never P&L** — see `11-behavioural-design.md` §3 for why that split is
+the whole point.
+
 ## M6 — Intelligence & polish
 - AI weekly narrative (deterministic SQL → LLM narration, never LLM arithmetic)
-- Semantic search over notes; emotional-state vs performance correlation
+- Voice notes + transcription, semantic search over them, and emotional-state vs
+  performance correlation built from language rather than mood sliders
 - Chat-with-your-data over a constrained schema
 - Economic calendar overlay + news-proximity analysis
 - Correlation / concurrent-exposure analysis

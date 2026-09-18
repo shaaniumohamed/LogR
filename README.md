@@ -40,6 +40,8 @@ change what you do tomorrow. LogR attacks both.
 | [08 — Open Questions](docs/08-open-questions.md) | Decisions needed before design starts |
 | [09 — Risk Model](docs/09-risk-model.md) | Journaling a discretionary trader who uses no fixed stop |
 | [10 — UI/UX](docs/10-ui-ux.md) | Phone-first design direction and screen inventory |
+| [11 — Behavioural Design](docs/11-behavioural-design.md) | The daily loop, in-session intervention, accountability group, first-run |
+| [12 — Charts & Media](docs/12-charts-and-media.md) | Reconstructed charts, screenshot capture, voice notes |
 
 ## Design principles
 
@@ -52,3 +54,7 @@ change what you do tomorrow. LogR attacks both.
 4. **Grade the process, not the P&L.** What sits at the top of the dashboard is
    what the user optimises for.
 5. **The LLM narrates; SQL calculates.** No statistic is ever produced by a model.
+6. **An alert that stops an action is legitimate; one that prompts an action is not.**
+   The app never encourages a trade.
+7. **Reward only what is under your control.** Streaks are for reviewing and
+   following rules, never for winning or for trading frequency.
