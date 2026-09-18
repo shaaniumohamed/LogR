@@ -43,6 +43,8 @@ change what you do tomorrow. LogR attacks both.
 | [11 — Behavioural Design](docs/11-behavioural-design.md) | The daily loop, in-session intervention, accountability group, first-run |
 | [12 — Charts & Media](docs/12-charts-and-media.md) | Reconstructed charts, screenshot capture, voice notes |
 | [13 — XAUUSD](docs/13-xauusd.md) | Gold specialisation: volatility regime, news proximity, spread conditions |
+| [14 — High Frequency](docs/14-high-frequency.md) | Redesign for ~100 orders/day; supersedes parts of 10 and 11 |
+| [15 — Methodology](docs/15-methodology.md) | Zone trades, automatic structure annotation, confluence marginal value |
 
 ## Design principles
 

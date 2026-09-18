@@ -65,6 +65,8 @@ in as one more source if that ever changes.)*
   `mae_proxy`) with `risk_source` honesty flags throughout the UI
 - **Tap-the-invalidation-level-on-chart** review interaction
 - Runner / breakeven / layering / scalp-cost analyses (`09-risk-model.md`)
+- **Zone-trade clustering** by price band + direction, user-correctable
+  (`15-methodology.md`) — core infrastructure, everything else depends on it
 - Playbook CRUD, trade→playbook tagging with auto-suggestions, per-playbook stats
   with confidence intervals and kill-criteria alerts
 - Mistake taxonomy + **auto-detection** (no stop, moved stop, oversized, revenge,
@@ -99,6 +101,19 @@ in as one more source if that ever changes.)*
 **Done when:** the dashboard headline is a discipline grade, not a P&L number.
 
 ---
+
+## M4b — Structure annotation & confluence analysis (~2 weeks)  ⭐
+- Automatic detection from bars: swing structure, BOS/CHoCH, liquidity sweeps,
+  equal highs/lows, FVGs, order blocks, premium/discount, fib retracement position,
+  HTF bias alignment — all user-tunable, all drawn on the trade chart
+- Fill-depth analysis, zone-width-vs-ATR analysis
+- **Confluence marginal-value model**: which factors carry the edge, which are
+  decoration, with sample sizes, CIs and collinearity warnings
+- Structural target detection and exit grading against it
+- Retest/breakeven interaction analysis
+
+**Done when:** the app can say which of the user's confluences is worth the least,
+with a number and a confidence interval behind it.
 
 ## M5 — Depth (~3 weeks)
 - M1 bar capture via EA → MAE/MFE analysis → "your stops are too wide" /
