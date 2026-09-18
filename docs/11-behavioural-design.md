@@ -81,6 +81,17 @@ Fires at 60% / 80% of limit, and at 80% it states the consequence in account ter
 has gone through it while the position is still open, say so once. This is the
 whole point of recording the level.
 
+### Delivery channel on iOS — pick Telegram, not web push
+iOS supports web push only for PWAs **installed to the home screen** (16.4+), and
+delivery is less reliable than native. For alerts whose entire value is landing
+within seconds of a trade, that is a real problem.
+
+**Recommendation: a Telegram bot as the primary alert channel.** It is instant and
+reliable, needs no app install or home-screen ritual, works identically on any
+phone, and traders already have Telegram open. Web push becomes a secondary
+channel for anyone who'd rather not use it. This also sidesteps the iOS PWA push
+permission flow entirely, which is a known onboarding drop-off.
+
 ### Escalation policy
 Warn → require acknowledgement → (only if the user explicitly arms it) lock the
 journal's "log a trade" flow and show a cooldown timer. LogR cannot and should not

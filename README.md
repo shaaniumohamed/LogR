@@ -42,6 +42,7 @@ change what you do tomorrow. LogR attacks both.
 | [10 — UI/UX](docs/10-ui-ux.md) | Phone-first design direction and screen inventory |
 | [11 — Behavioural Design](docs/11-behavioural-design.md) | The daily loop, in-session intervention, accountability group, first-run |
 | [12 — Charts & Media](docs/12-charts-and-media.md) | Reconstructed charts, screenshot capture, voice notes |
+| [13 — XAUUSD](docs/13-xauusd.md) | Gold specialisation: volatility regime, news proximity, spread conditions |
 
 ## Design principles
 

@@ -69,8 +69,16 @@ in as one more source if that ever changes.)*
   with confidence intervals and kill-criteria alerts
 - Mistake taxonomy + **auto-detection** (no stop, moved stop, oversized, revenge,
   overtraded) + the cost-attribution report
-- Session / hour / day-of-week analytics, DST-correct
-- Symbol + cost breakdown (commission, swap, spread)
+- Session / hour / day-of-week analytics, DST-correct, using gold-specific session
+  buckets (`13-xauusd.md`)
+- **Volatility-regime segmentation** (daily ATR percentile) — the primary
+  segmentation for a gold-only trader, ahead of symbol breakdown
+- Cost breakdown: actual spread at entry, rollover-window detection, minimum
+  viable target size
+
+- **Economic calendar integration** — promoted from Tier 3 because gold is the
+  most news-sensitive liquid instrument; auto-tag every trade with minutes to/from
+  the nearest high-impact USD event
 
 **Done when:** the app can answer "what is my most expensive habit?" with a number.
 
@@ -82,7 +90,8 @@ in as one more source if that ever changes.)*
 - Prop-firm challenge tracker with live gauges and Monte Carlo pass probability
   (requires the MetaApi bridge for live equity — statements alone give end-of-day only)
 - Streaks (process only), email digest via Vercel Cron
-- Browser push + Telegram alerts for protective events
+- **Telegram bot as the primary alert channel** (iOS web push is unreliable —
+  `11-behavioural-design.md` §2)
 - **In-session interventions** (`11-behavioural-design.md` §2): personal tilt
   threshold, size-increase-after-loss detection, naked-position warning,
   invalidation-breach alert. Warn-only defaults, escalation strictly opt-in
@@ -111,7 +120,7 @@ the whole point.
 - Voice notes + transcription, semantic search over them, and emotional-state vs
   performance correlation built from language rather than mood sliders
 - Chat-with-your-data over a constrained schema
-- Economic calendar overlay + news-proximity analysis
+- (moved up to M3 — see below)
 - Correlation / concurrent-exposure analysis
 - PWA install, offline-capable mobile journaling
 
