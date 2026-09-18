@@ -295,6 +295,7 @@ const CONF_GROUPS=[
 const CONF=CONF_GROUPS.flatMap(g=>g.items.map(([n,e])=>({n,e,g:g.g})));
 const CONF_W=Object.fromEntries(CONF.map(c=>[c.n,c.e]));
 const EMOTIONS=['Patient','Rushed','Confident','Hesitant','Frustrated','Bored','Focused'];
+const TFS=['M1','M5','M15','H1','H4'];   // timeframe the setup was read on
 const MISTAKES=['Chased entry','Oversized','Moved stop','Held past invalidation','No setup','Revenge trade','Early exit','Traded news'];
 const SESSIONS=[{k:'Asia',h:1,w:.09},{k:'London',h:8,w:.43},{k:'NY AM',h:13,w:.36},{k:'NY PM',h:17,w:.12}];
 
@@ -416,6 +417,7 @@ function mkTrade(id,date,dayPrice,atr,regime,seq){
     spread:+RF(.15,.36).toFixed(2),
     heldPast: !win&&R()<.26, overSize: lots>.045,
     emotion: R()<.55? pick(EMOTIONS):null,
+    tf: (()=>{const r2=R();return r2<.34?'M1':r2<.66?'M5':r2<.86?'M15':r2<.96?'H1':'H4';})(),
     mistakes: [],
     note: R()<.22? pick(NOTE_SEEDS):'',
     newsMin: R()<.14? RI(2,28) : null,
@@ -711,11 +713,12 @@ function vHome(){
         <div class="x">per zone trade</div></div>
       <div class="c"><div class="v">${st.plannedRR.toFixed(1)}→${st.realisedR.toFixed(2)}</div><div class="k">Planned → real R</div>
         <div class="x">${((st.realisedR/st.plannedRR)*100).toFixed(0)}% captured</div></div>
-      <div class="c"><div class="v">${st.score}</div><div class="k">Execution</div>
-        <div class="x">${gradeOf(st.score)} average</div></div>
+      <div class="c"><div class="v">${pct(days.filter(d=>d.net>0).length/days.length)}</div><div class="k">Profitable days</div>
+        <div class="x">${days.filter(d=>d.net>0).length} of ${days.length}</div></div>
     </div>
     <p class="tiny" style="margin:-4px 2px 0">Win rate above break-even is what makes the edge real — the gap is ${((st.wr-st.beWR)*100).toFixed(1)} points.</p>
 
+    ${reminderCard(list)}
     ${insightCard(list)}
 
     <div class="sectionhead"><h2>Calendar</h2>
@@ -746,6 +749,42 @@ function vHome(){
 }
 function cycleHeadline(){ST.headline={net:'r',r:'score',score:'net'}[ST.headline];render();}
 
+/* Reminders: the user's own rules first, then one caution derived from their own
+   data. Deliberately not generic trading quotes — a stranger's aphorism has no
+   information in it, whereas "your 13:00 hour has cost you $421" does. */
+let MY_RULES=[
+ 'Wait for the sweep to complete before entering.',
+ 'If the ladder is fully filled, the zone was wrong. Size down.',
+ 'No new trade within 5 minutes of a loss.',
+ 'Move to breakeven only after price clears the zone.',
+];
+function dataCaution(list){
+  const cands=[];
+  const bySes=segment(list,t=>t.session,{minN:12});
+  if(bySes.length){const w2=bySes[bySes.length-1];
+    if(w2.value<0) cands.push(`Your ${w2.label} trades run at ${rfmt(w2.value)} across ${w2.n} trades — ${money(w2.net,0)}.`);}
+  const deep=list.filter(t=>t.fillDepth>=.92);
+  if(deep.length>10){const e=deep.reduce((a,t)=>a+t.rMult,0)/deep.length;
+    if(e<0.05) cands.push(`When your whole ladder fills you average ${rfmt(e)} over ${deep.length} trades. A full fill is a warning.`);}
+  const be=list.filter(t=>t.beEarly);
+  if(be.length>8) cands.push(`Breakeven moved before the zone cleared on ${be.length} trades, giving back about ${be.reduce((a,t)=>a+Math.max(0,t.mfeR-t.rMult),0).toFixed(1)}R.`);
+  const held=list.filter(t=>t.heldPast);
+  if(held.length>5) cands.push(`You held past your own invalidation ${held.length} times. Those trades net ${money0(held.reduce((a,t)=>a+t.netPnl,0))}.`);
+  const st=stats(list);
+  cands.push(`Your edge is ${((st.wr-st.beWR)*100).toFixed(1)} points of win rate above break-even. That is the whole margin.`);
+  return cands[new Date().getDate()%cands.length];
+}
+function reminderCard(list){
+  const rule=MY_RULES[new Date().getDate()%MY_RULES.length];
+  return `<div class="card" style="border-left:3px solid var(--c1)">
+    <div class="eyebrow" style="color:var(--c1)">Before you trade</div>
+    <p style="margin:7px 0 0;font-size:14.5px;font-weight:600;line-height:1.45">${esc(rule)}</p>
+    <div class="divider"></div>
+    <div class="tiny" style="line-height:1.5">${esc(dataCaution(list))}</div>
+    <button class="link" style="margin-top:9px" onclick="go('more')">Edit your rules →</button>
+  </div>`;
+}
+
 function insightCard(list){
   const m=CONF.map(c=>marginal(list,c.n)).filter(Boolean).sort((a,b)=>a.value-b.value);
   const worst=m[0], best=m[m.length-1];
@@ -775,12 +814,42 @@ function card(title,sub,body,note){
   return `<div class="chartcard"><h3>${esc(title)}</h3>${sub?`<div class="sub">${sub}</div>`:''}${body}${note?`<div class="note">${note}</div>`:''}</div>`;
 }
 
+function verdictBoard(list){
+  const dims=[
+    ['Setup',segment(list,t=>t.setup,{minN:12})],
+    ['Session',segment(list,t=>t.session,{minN:12})],
+    ['Timeframe',segment(list,t=>t.tf,{minN:12})],
+    ['Volatility',segment(list,t=>t.regime,{minN:12})],
+    ['Fill depth',segment(list,t=>t.fillDepth<.5?'1–2 layers':t.fillDepth<.92?'Most of ladder':'Full ladder',{minN:12})],
+  ];
+  const win=[],lose=[];
+  dims.forEach(([k,rows])=>{ if(!rows.length)return;
+    const b=rows[0], w2=rows[rows.length-1];
+    if(b.value>0.05) win.push({k,label:b.label,v:b.value,n:b.n,net:b.net});
+    if(w2.value<-0.02&&w2!==b) lose.push({k,label:w2.label,v:w2.value,n:w2.n,net:w2.net});});
+  win.sort((a,b)=>b.v-a.v); lose.sort((a,b)=>a.v-b.v);
+  const row=(x,good)=>`<div class="between" style="padding:8px 0;border-top:1px solid var(--line)">
+    <span><span class="tag">${x.k}</span> <b style="font-size:13.5px">${esc(x.label)}</b>
+      <div class="tiny">n=${x.n} · ${money(x.net,0)}</div></span>
+    <span class="num ${good?'pos':'neg'}" style="font-weight:700">${rfmt(x.v)}</span></div>`;
+  return `<div class="chartcard">
+    <h3>What is working, what is not</h3>
+    <div class="sub">Best and worst slice of each dimension, ranked by expectancy. The fastest read in the app.</div>
+    <div class="grpttl" style="color:var(--profit)">Keep doing</div>
+    ${win.slice(0,5).map(x=>row(x,true)).join('')||'<div class="tiny">Nothing clears the threshold in this period.</div>'}
+    <div class="grpttl" style="color:var(--loss)">Stop or fix</div>
+    ${lose.slice(0,5).map(x=>row(x,false)).join('')||'<div class="tiny">Nothing is clearly losing in this period.</div>'}
+    <div class="note">Each line is the strongest and weakest bucket of that dimension. Drill into any tab for the full ranking and sample sizes.</div>
+  </div>`;
+}
+
 function anaOverview(list){
   const st=stats(list);
   const rs=list.map(t=>t.rMult);
   let c=0; const curve=periodDays().map(d=>c+=d.rSum);
   const big=rs.filter(r=>r>2).length, small=rs.filter(r=>r>0&&r<.5).length;
   return `
+  ${verdictBoard(list)}
   ${card('Distribution of R','The single most informative chart in a journal — the shape of your edge.',
     histR(rs),
     `${small} winners closed under 0.5R against ${big} above 2R. A left-heavy hump of small wins is the signature of cutting winners short.`)}
@@ -820,6 +889,9 @@ function anaSetups(list){
     hbars(byCount.map(r=>({label:r.label,value:r.value,n:r.n})),{fmt:rfmt,padL:72,aria:'Expectancy by confluence count'}),
     `If this curve is flat, you are gathering confirmation rather than edge — and the extra wait costs you entries.`)}
 
+  ${card('By timeframe the setup was read on',null,
+    hbars(segment(list,t=>t.tf,{minN:10,byLabel:true}).map(r=>({label:r.label,value:r.value,n:r.n})),{fmt:rfmt,padL:56,aria:'Expectancy by timeframe'}),
+    `If the lower timeframes underperform, you are reading noise as structure — the same setup on a higher timeframe is a different trade.`)}
   ${card('Win rate by setup','Shown against the break-even rate each setup needs at its own payoff.',
     hbars(bySetup.map(r=>{const s=stats(r.trades);return{label:r.label,value:(s.wr-s.beWR)*100,n:r.n};}),
       {fmt:v=>(v>0?'+':'')+v.toFixed(1)+'pt',padL:100,aria:'Win rate margin over break-even by setup'}),
@@ -1032,7 +1104,7 @@ function vTrade(){
 
     <div class="row" style="flex-wrap:wrap"><span class="pill">${hhmm(t.minute)} · ${t.session}</span>
       <span class="pill">${t.regime} vol</span><span class="pill">${t.hold}m</span>
-      <span class="pill">fill ${(t.fillDepth*100).toFixed(0)}%</span>
+      <span class="pill">fill ${(t.fillDepth*100).toFixed(0)}%</span><span class="pill">${t.tf}</span>
       ${t.newsMin!==null?`<span class="pill l">news ${t.newsMin}m</span>`:''}</div>
 
     <div class="kpi6">
@@ -1055,6 +1127,8 @@ function vTrade(){
       <div class="eyebrow" style="margin-bottom:8px">Note</div>
       ${t.note?`<div class="notepv" style="margin-bottom:10px">${esc(t.note)}</div>`:''}
       <textarea class="note" id="note-${t.id}" placeholder="What did you see? What would you do differently?" oninput="saveNote(${t.id},this.value)">${esc(t.note)}</textarea>
+      <div class="grpttl">Timeframe read on</div>
+      <div class="chips">${TFS.map(f=>`<button class="chip" aria-pressed="${t.tf===f}" onclick="setTF(${t.id},'${f}')">${f}</button>`).join('')}</div>
       <div class="grpttl">How it felt</div>
       <div class="chips">${EMOTIONS.map(e=>`<button class="chip" aria-pressed="${t.emotion===e}" onclick="setEmotion(${t.id},'${e}')">${e}</button>`).join('')}</div>
       <div class="grpttl">Flags</div>
@@ -1077,6 +1151,7 @@ function vTrade(){
 }
 function setDraw(m){ST.draw.mode=ST.draw.mode===m?null:m;render();}
 function saveNote(id,v){const t=ALL.find(x=>x.id===id);if(t)t.note=v;}
+function setTF(id,f){const t=ALL.find(x=>x.id===id);t.tf=f;render();}
 function setEmotion(id,e){const t=ALL.find(x=>x.id===id);t.emotion=t.emotion===e?null:e;render();}
 function toggleMistake(id,m){const t=ALL.find(x=>x.id===id);const i=t.mistakes.indexOf(m);
   i>=0?t.mistakes.splice(i,1):t.mistakes.push(m);render();}
@@ -1126,11 +1201,14 @@ function vReview(){
     <p class="hint" style="margin-top:-4px">Tap the chart where the idea was invalid${a.inval?' — tap again to adjust':''}</p>
     <div class="card" style="padding:13px"><div class="between">
       <div><div class="tiny">Invalidation</div><div class="num" style="font-size:17px;font-weight:600">${inval.toFixed(2)}</div></div>
-      <div style="text-align:right"><div class="tiny">Risk / result</div>
-        <div class="num" style="font-size:17px;font-weight:600">$${risk.toFixed(2)} · <span class="${rM>0?'pos':'neg'}">${rfmt(rM)}</span></div></div>
-    </div>${a.inval?'':`<div class="tiny" style="margin-top:8px">Proposed from your zone geometry.</div>`}</div>
+      <div style="text-align:right"><div class="tiny">Risked → result</div>
+        <div class="num" style="font-size:17px;font-weight:600">$${risk.toFixed(2)} → <span class="${rM>0?'pos':'neg'}">${money(t.netPnl)}</span></div>
+        <div class="tiny"><span class="${rM>0?'pos':'neg'}">${rfmt(rM)}</span> — ${rM>0?`made ${Math.abs(rM).toFixed(2)}× your risk`:`lost ${Math.abs(rM).toFixed(2)}× your risk`}</div></div>
+    </div>${a.inval?'':`<div class="tiny" style="margin-top:8px">Proposed from your zone geometry. R is a multiple of what you risked: −1R is a full stop-out.</div>`}</div>
     <div><div class="eyebrow" style="margin-bottom:8px">Setup</div>
       <div class="chips">${SETUPS.map(s=>`<button class="chip" aria-pressed="${a.setup===s.n}" onclick="pickSetup('${s.n}')">${s.n}</button>`).join('')}</div></div>
+    <div><div class="eyebrow" style="margin-bottom:8px">Timeframe read on</div>
+      <div class="chips">${TFS.map(f=>`<button class="chip" aria-pressed="${t.tf===f}" onclick="setTF(${t.id},'${f}')">${f}</button>`).join('')}</div></div>
     <div><div class="eyebrow" style="margin-bottom:6px">Confluence <span style="text-transform:none;letter-spacing:0;font-weight:400">— ${t.conf.length} auto-detected</span></div>
       ${CONF_GROUPS.map(g=>`<div class="grpttl">${g.g}</div><div class="chips">${g.items.map(([n])=>{
         const on=a.conf.length?a.conf.includes(n):t.conf.includes(n);
@@ -1249,6 +1327,11 @@ function vMore(){
         {fmt:v=>money0(v),padL:100,aria:'Cost by account type'}),
       `Difference: <b class="pos">${money0(proCost-rawCost)}</b> over this period — about ${((proCost-rawCost)/st.net*100).toFixed(0)}% more kept, for no change in how you trade.
        Verify against your own measured spread: advertised is not paid, and tighter quotes can come with worse fills.`)}
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:4px">Your rules</div>
+      <div class="tiny" style="margin-bottom:10px">One is surfaced on the home screen each day, alongside a caution drawn from your own data. No generic quotes — a stranger's aphorism carries no information about your trading.</div>
+      <textarea class="note" style="min-height:110px" oninput="MY_RULES=this.value.split('\n').filter(x=>x.trim())">${esc(MY_RULES.join('\n'))}</textarea>
+    </div>
     <div class="card">
       <div class="between"><div style="flex:1"><div style="font-size:14px;font-weight:600">Colour-safe profit / loss</div>
         <div class="tiny" style="margin-top:3px">Swaps loss from red to orange. Default pair measures ΔE 6.5 under protanopia; this one 9.4.</div></div>

@@ -49,6 +49,7 @@ change what you do tomorrow. LogR attacks both.
 | [17 — Trade Score](docs/17-trade-score.md) | Why composite scores fail, and the execution score that replaces them |
 | [18 — Design System](docs/18-design-system.md) | Validated palette, type, charts, screens, prototype plan |
 | [19 — Analytics Catalog](docs/19-analytics.md) | Every chart the app ships, what question each answers |
+| [20 — Real-Data Validation](docs/20-real-data-validation.md) | What a real broker export proved, disproved and changed |
 
 ## Data handling rule for this repo
 
