@@ -3,6 +3,7 @@ import { computeStats, costPicture } from "@/lib/core/metrics";
 import { byHourLocal, byLocalDay } from "@/lib/core/analysis";
 import { loadTrades, recentSlice, resolvePeriod } from "@/lib/queries";
 import { PeriodTabs } from "@/components/period-tabs";
+import { zoneName } from "@/lib/timezones";
 import { BarChart, CalendarHeatmap, CurveChart, VersusBar } from "@/components/charts";
 import { Card, Empty, Estimated, Eyebrow, Note, Stat, StatGrid, Verdict, count, money, money0, pct } from "@/components/ui";
 
@@ -209,10 +210,11 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
 
       {badHours.length > 0 && (
         <Card>
-          <Eyebrow>Hours that keep costing you</Eyebrow>
+          <Eyebrow>Hours that keep costing you · {zoneName(timeZone)}</Eyebrow>
           <Verdict>
-            These are the times of day, in your own local time, where you lost money on most
-            of the days you traded them — not just once badly.
+            Times of day where you lost money on most of the days you traded them — not just
+            once badly. Shown in <b>{zoneName(timeZone)}</b>, which is where the app thinks
+            you are.
           </Verdict>
           <BarChart
             rows={badHours.map((h) => ({

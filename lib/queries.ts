@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { users, zoneTrades } from "@/lib/db/schema";
+import { positions, users, zoneTrades } from "@/lib/db/schema";
 import { getOrCreateAccount } from "@/lib/account";
 import type { ZoneTrade } from "@/lib/core/types";
 
@@ -78,6 +78,24 @@ export async function loadTrades(period: PeriodKey = "all") {
     timeZone,
     isEmpty: all.length === 0,
   };
+}
+
+/**
+ * Individual close events.
+ *
+ * A close reason describes one exit, not a whole trade: ladder into a zone, take
+ * two partials by hand and let the runner hit the stop, and the trade is neither
+ * "you closed it" nor "stopped out". Analysing exits avoids having to pick one
+ * label for something that had three endings.
+ */
+export async function loadExits(accountId: string, period: PeriodKey = "all") {
+  const rows = await db.select().from(positions)
+    .where(eq(positions.accountId, accountId))
+    .orderBy(desc(positions.closedAt));
+  const days = PERIODS.find((p) => p.key === period)!.days;
+  if (days === null || !rows.length) return rows;
+  const cutoff = rows[0].closedAt.getTime() - days * 86400000;
+  return rows.filter((r) => r.closedAt.getTime() >= cutoff);
 }
 
 /** Trades from the most recent N days of data, for the recent-vs-lifetime contrast. */

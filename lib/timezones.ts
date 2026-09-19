@@ -43,3 +43,10 @@ export function offsetLabel(tz: string, at = new Date()): string {
     return "";
   }
 }
+
+/** "Kuala Lumpur time" — so a reader always knows whose clock a chart is using. */
+export function zoneName(tz: string): string {
+  if (tz === "UTC") return "UTC";
+  const city = tz.split("/").pop()?.replace(/_/g, " ");
+  return city ? `${city} time` : tz;
+}

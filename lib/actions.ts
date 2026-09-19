@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { tradeAnnotations } from "@/lib/db/schema";
+import { tradeAnnotations, users } from "@/lib/db/schema";
 import { getOrCreateAccount } from "@/lib/account";
 
 /**
@@ -79,4 +79,26 @@ export async function loadAnnotation(accountId: string, identityHash: string) {
       eq(tradeAnnotations.identityHash, identityHash)
     ),
   });
+}
+
+/**
+ * Save the trader's time zone.
+ *
+ * Every time in the app renders in this zone, so it decides what "21:00" means.
+ * Called automatically the first time we can detect it, because a journal whose
+ * clock silently defaults to UTC tells a Malaysian trader their worst hour is
+ * 13:00 when they were actually trading at 21:00.
+ */
+export async function setTimeZone(tz: string) {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false };
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: tz });
+  } catch {
+    return { ok: false };
+  }
+  await db.update(users).set({ timeZone: tz }).where(eq(users.id, userId));
+  revalidatePath("/", "layout");
+  return { ok: true };
 }

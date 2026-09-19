@@ -3,8 +3,9 @@ import { loadAnnotations } from "@/lib/actions";
 import { confluenceLabel, feelingLabel, isGoodFeeling, mistakeLabel } from "@/lib/core/taxonomy";
 import { Info, Caveat } from "@/components/info";
 import { holdBucket, sessionOf, weekdayIn, counterfactual } from "@/lib/core/analysis";
-import { loadTrades, resolvePeriod } from "@/lib/queries";
+import { loadExits, loadTrades, resolvePeriod } from "@/lib/queries";
 import { PeriodTabs } from "@/components/period-tabs";
+import { zoneName } from "@/lib/timezones";
 import { BarChart, type BarRow } from "@/components/charts";
 import { Card, Empty, Eyebrow, Note, Verdict, count, money, money0, pct } from "@/components/ui";
 import type { ZoneTrade } from "@/lib/core/types";
@@ -86,15 +87,38 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
   const calmS = computeStats(calm), chargedS = computeStats(charged);
   const showMindset = calm.length >= 8 && charged.length >= 8;
 
-  const endedRows = rowsFor(trades, (t) => {
-    const r = t.closeReasons.includes("so") ? "so"
-      : t.closeReasons.includes("tp") ? "tp"
-      : t.closeReasons.includes("sl") ? "sl"
-      : t.closeReasons[0] ?? "unknown";
-    return ENDED_LABEL[r] ?? r;
-  });
-  const tp = segmentBy(trades, (t) => (t.closeReasons.includes("tp") ? "tp" : "other"), MIN).find((g) => g.key === "tp");
-  const manual = segmentBy(trades, (t) => (t.closeReasons.includes("tp") ? "tp" : "other"), MIN).find((g) => g.key === "other");
+  /**
+   * Counted per exit, and stops split by whether they fired in profit.
+   *
+   * A stop moved to breakeven after a partial is still reported as "sl" by the
+   * broker, so pooling it with real stop-outs hides both: it makes the stop group
+   * look survivable and hides how large the genuine losses are.
+   */
+  const exits = await loadExits(account.id, period);
+  const exitGroups = new Map<string, { net: number; n: number; won: number }>();
+  for (const e of exits) {
+    const pnl = e.profit + e.commission + e.swap;
+    const key =
+      e.closeReason === "tp" ? "Target was hit"
+      : e.closeReason === "so" ? "Margin call"
+      : e.closeReason === "sl" ? (pnl >= 0 ? "Stop hit in profit" : "Stop hit at a loss")
+      : "You closed it by hand";
+    const g = exitGroups.get(key) ?? { net: 0, n: 0, won: 0 };
+    g.net += pnl; g.n += 1; if (pnl > 0) g.won += 1;
+    exitGroups.set(key, g);
+  }
+  const endedRows: BarRow[] = [...exitGroups.entries()]
+    .filter(([, g]) => g.n >= MIN)
+    .sort((a, b) => b[1].net - a[1].net)
+    .map(([label, g]) => ({
+      label,
+      value: Math.round(g.net * 100) / 100,
+      meta: `${g.n.toLocaleString()} exits · avg ${money(g.net / g.n)}`,
+    }));
+  const protectedStops = exitGroups.get("Stop hit in profit");
+  const realStops = exitGroups.get("Stop hit at a loss");
+  const targets = exitGroups.get("Target was hit");
+  const byHand = exitGroups.get("You closed it by hand");
 
   const stopRows = rowsFor(trades, (t) => (t.hadStop ? "Stop loss set" : "No stop set"));
   const hourRows = rowsFor(trades, (t) => `${String(hourIn(t.openedAt, timeZone)).padStart(2, "0")}:00`, 15).slice(0, 12);
@@ -214,16 +238,33 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
         <Card>
           <Eyebrow>How your trades ended</Eyebrow>
           <Verdict>
-            {tp && manual && tp.stats.expectancy > manual.stats.expectancy * 2
-              ? `Trades that ran to a target averaged ${money(tp.stats.expectancy)} each. Trades you closed by hand averaged ${money(manual.stats.expectancy)}.`
-              : `This splits your trades by what actually closed them.`}
+            {targets && byHand
+              ? `Exits that ran to a target averaged ${money(targets.net / targets.n)}. Exits you closed by hand averaged ${money(byHand.net / byHand.n)}.`
+              : "This splits every exit by what actually closed it."}
           </Verdict>
           <BarChart rows={endedRows} format={(v) => money0(v)} />
+          {protectedStops && realStops && (
+            <Note>
+              Notice the two stop rows. <b>{protectedStops.n} of your stop exits fired in
+              profit</b> — those are stops you had already moved to breakeven or better, doing
+              exactly their job. The {realStops.n} that fired at a loss cost{" "}
+              <b className="neg">{money0(realStops.net)}</b>, averaging{" "}
+              <b>{money(realStops.net / realStops.n)}</b> each, which is far larger than your
+              typical trade. Your real stop-outs are rare and heavy.
+            </Note>
+          )}
+          <Info title="Why is this counted in exits rather than trades?">
+            How a trade ended is a property of each <i>exit</i>, not of the trade. You ladder
+            into a zone, take two partials by hand and let the runner hit the stop — that
+            trade had three different endings, and forcing one label onto it would have
+            reported a profitable trade as &ldquo;stopped out&rdquo;. Counting exits avoids
+            inventing a single answer where there were several.
+          </Info>
           <Caveat>
-            <b>Read this carefully.</b> A target only fills if price reached it, so those
-            trades are selected for having gone well — the comparison is not fair on its own.
-            What is fair to say is that it is worth testing deliberately: set a target on a
-            run of trades and see whether the pattern survives.
+            <b>The target row is not a fair comparison.</b> A target only fills if price
+            reached it, so those exits are selected for having gone well. What is fair to say
+            is that it is worth testing on purpose: set a target on a run of trades and see
+            whether the pattern survives.
           </Caveat>
         </Card>
       )}
@@ -258,7 +299,7 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
       />
 
       <Section
-        title="Time of day"
+        title={`Time of day · ${zoneName(timeZone)}`}
         verdict={`When you opened the trade, in your local time. ${
           hourRows.length && hourRows[hourRows.length - 1].value < 0
             ? `Your worst hour is ${hourRows[hourRows.length - 1].label}, at ${money0(hourRows[hourRows.length - 1].value)}.`
@@ -277,7 +318,7 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
       />
 
       <Section
-        title="Session"
+        title={`Session · ${zoneName(timeZone)}`}
         verdict="The same picture grouped into trading sessions, which is usually easier to act on than single hours."
         rows={sessionRows}
       />

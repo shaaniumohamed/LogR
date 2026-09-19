@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { eq } from "drizzle-orm";
 import { auth, signOut } from "@/auth";
+import { db } from "@/lib/db";
+import { users } from "@/lib/db/schema";
+import { ZoneSync } from "@/components/zone-sync";
 
 /**
  * Bottom tab bar on phones, inline nav on desktop. The journal's main session is
@@ -19,6 +23,8 @@ const DESKTOP_EXTRA = [{ href: "/import", label: "Import" }] as const;
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
   if (!session?.user) redirect("/signin");
+  const me = await db.query.users.findFirst({ where: eq(users.id, session.user.id!) });
+  const savedZone = me?.timeZone ?? "UTC";
 
   return (
     <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-4">
@@ -34,7 +40,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </form>
       </header>
 
-      <main className="flex-1 py-5 pb-28 sm:pb-8">{children}</main>
+      <main className="flex-1 py-5 pb-28 sm:pb-8">
+        <ZoneSync saved={savedZone} />
+        {children}
+      </main>
 
       <nav aria-label="Sections"
            className="fixed inset-x-0 bottom-0 z-30 border-t sm:hidden"
