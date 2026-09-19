@@ -84,6 +84,27 @@ describe("parseExnessCsv", () => {
     expect(() => parseExnessCsv("total_profit,gain\n1217.80,620.76")).toThrowError(/Trading Analytics summary|missing column/i);
   });
 
+  it("keeps partial exits that share a ticket", () => {
+    // Five tickets in a real export were reused this way. Dropping them put the
+    // stored net $39.83 below the broker's — the exact failure this guards.
+    const { positions, duplicates } = parseExnessCsv(
+      csv(row({ ticket: "2780886239", closing_time_utc: "2026-09-09T14:43:31", lots: "0.02", profit: "-6.59" }),
+          row({ ticket: "2780886239", closing_time_utc: "2026-09-09T14:42:17", lots: "0.02", profit: "0.77" }),
+          row({ ticket: "2780886239", closing_time_utc: "2026-09-09T14:41:06", lots: "0.01", profit: "0.19" }))
+    );
+    expect(positions).toHaveLength(3);
+    expect(duplicates).toBe(0);
+  });
+
+  it("drops only an exact repeat of the same exit", () => {
+    const { positions, duplicates } = parseExnessCsv(
+      csv(row({ ticket: "1", closing_time_utc: "2026-09-18T16:24:52" }),
+          row({ ticket: "1", closing_time_utc: "2026-09-18T16:24:52" }))
+    );
+    expect(positions).toHaveLength(1);
+    expect(duplicates).toBe(1);
+  });
+
   it("reconciles net against the broker's own figures", () => {
     const { summary } = parseExnessCsv(
       csv(row({ ticket: "1", profit: "10.00" }), row({ ticket: "2", profit: "-4.50" }),

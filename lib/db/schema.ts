@@ -94,8 +94,18 @@ export const positions = pgTable("position", {
   closeReason: text("close_reason").notNull().default("unknown"),
   importBatchId: text("import_batch_id"),
 }, (t) => [
-  // Idempotency: re-importing an overlapping export is a no-op, never a duplicate.
-  uniqueIndex("position_account_ticket_idx").on(t.accountId, t.ticket),
+  /**
+   * Idempotency key is (account, ticket, closedAt) — NOT ticket alone.
+   *
+   * A ticket identifies a position, and a position closed in parts emits one
+   * row per partial exit, all sharing that ticket. Keying on ticket alone
+   * silently discards real exits: on a real export it dropped six of them and
+   * put the stored P&L $39.83 below the broker's own figure.
+   *
+   * A position cannot close twice at the same instant, so adding closedAt makes
+   * the key exact while still making a re-imported overlapping range a no-op.
+   */
+  uniqueIndex("position_account_ticket_closed_idx").on(t.accountId, t.ticket, t.closedAt),
   index("position_account_opened_idx").on(t.accountId, t.openedAt),
 ]);
 
@@ -113,7 +123,10 @@ export const zoneTrades = pgTable("zone_trade", {
   openedAt: timestamp("opened_at", { withTimezone: true }).notNull(),
   closedAt: timestamp("closed_at", { withTimezone: true }).notNull(),
   holdMinutes: real("hold_minutes").notNull(),
+  /** Distinct entry tickets — the ladder's real depth. */
   legCount: integer("leg_count").notNull(),
+  /** Close events; exceeds legCount when a position was scaled out of. */
+  exitCount: integer("exit_count").notNull().default(1),
   lots: real("lots").notNull(),
   avgEntry: doublePrecision("avg_entry").notNull(),
   avgExit: doublePrecision("avg_exit").notNull(),

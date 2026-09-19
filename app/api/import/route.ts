@@ -57,8 +57,8 @@ export async function POST(req: Request) {
     userId, accountId: account.id, filename, rowsParsed: rows.length, reportedNet,
   }).returning();
 
-  // Idempotent on (accountId, ticket): re-importing an overlapping export adds
-  // nothing and duplicates nothing, so the user can re-upload without fear.
+  // Idempotent on (accountId, ticket, closedAt). Ticket alone is NOT unique:
+  // partial exits of one position repeat it, and keying on it drops real trades.
   let inserted = 0;
   const CHUNK = 500;
   for (let i = 0; i < rows.length; i += CHUNK) {
@@ -82,7 +82,7 @@ export async function POST(req: Request) {
       importBatchId: batch.id,
     }));
     const res = await db.insert(positions).values(slice).onConflictDoNothing({
-      target: [positions.accountId, positions.ticket],
+      target: [positions.accountId, positions.ticket, positions.closedAt],
     }).returning({ id: positions.id });
     inserted += res.length;
   }
@@ -121,6 +121,7 @@ export async function POST(req: Request) {
         closedAt: z.closedAt,
         holdMinutes: z.holdMinutes,
         legCount: z.legCount,
+        exitCount: z.exitCount,
         lots: z.lots,
         avgEntry: z.avgEntry,
         avgExit: z.avgExit,

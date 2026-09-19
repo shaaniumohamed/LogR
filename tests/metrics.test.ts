@@ -6,7 +6,7 @@ const zt = (netPnl: number, holdMinutes = 5, lots = 0.01): ZoneTrade => ({
   id: Math.random().toString(36), symbol: "XAUUSD", direction: "long", legs: [],
   openedAt: new Date(), closedAt: new Date(), holdMinutes, lots,
   avgEntry: 0, avgExit: 0, zoneLow: 0, zoneHigh: 0, zoneHeight: 0,
-  netPnl, commission: 0, swap: 0, legCount: 1, closeReasons: ["user"], hadStop: false,
+  netPnl, commission: 0, swap: 0, legCount: 1, exitCount: 1, closeReasons: ["user"], hadStop: false,
 });
 
 describe("computeStats", () => {

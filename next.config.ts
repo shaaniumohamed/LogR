@@ -1,9 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Domain logic lives in lib/core and must stay free of framework imports so it
-  // can run in the browser (statement parsing) and on the server (ingest) alike.
-  typedRoutes: true,
+  // typedRoutes is deliberately off: it cannot express hrefs built from a
+  // template literal (the period tabs append ?period=…), and working around that
+  // with casts costs more clarity than the checking buys back.
+  typedRoutes: false,
 };
 
 export default nextConfig;

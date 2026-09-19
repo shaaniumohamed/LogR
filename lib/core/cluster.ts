@@ -103,15 +103,23 @@ function toZoneTrade(legs: Position[]): ZoneTrade {
     netPnl: round2(legs.reduce((s, l) => s + l.profit + l.commission + l.swap, 0)),
     commission: round2(legs.reduce((s, l) => s + l.commission, 0)),
     swap: round2(legs.reduce((s, l) => s + l.swap, 0)),
-    legCount: legs.length,
+    // Distinct tickets, so three partial exits of one entry count as ONE leg.
+    legCount: new Set(legs.map((l) => l.ticket)).size,
+    exitCount: legs.length,
     closeReasons: [...new Set(legs.map((l) => l.closeReason))],
     hadStop: legs.some((l) => l.stopLoss !== null),
   };
 }
 
-/** Deterministic id from the sorted leg tickets. Same legs → same id, always. */
+/**
+ * Deterministic id from the sorted leg identities. Same legs → same id, always,
+ * so user notes keyed to it survive any re-derivation.
+ *
+ * Uses (ticket, closedAt) rather than ticket, or a trade whose position was
+ * scaled out of would collide with itself.
+ */
 export function identityHash(legs: Position[]): string {
-  const key = legs.map((l) => l.ticket).sort().join("|");
+  const key = legs.map((l) => `${l.ticket}@${l.closedAt.toISOString()}`).sort().join("|");
   let h1 = 0x811c9dc5;
   let h2 = 0x01000193;
   for (let i = 0; i < key.length; i++) {

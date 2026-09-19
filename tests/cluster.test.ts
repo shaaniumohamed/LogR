@@ -94,3 +94,42 @@ describe("clusterPositions", () => {
     expect(Math.abs(clustered - total)).toBeLessThan(0.01);
   });
 });
+
+describe("partial closes — a ticket is not unique", () => {
+  // Taken from a real Exness export: one position scaled out in three parts.
+  // Every row repeats the parent ticket with the same entry, differing only on
+  // close time, volume and result. Treating the ticket as unique dropped these.
+  const partials: Position[] = [
+    pos({ ticket: "2780886239", openedAt: at(0), openPrice: 4423.8, closedAt: at(9),  lots: 0.02, profit: -6.59 }),
+    pos({ ticket: "2780886239", openedAt: at(0), openPrice: 4423.8, closedAt: at(10), lots: 0.02, profit: 0.77 }),
+    pos({ ticket: "2780886239", openedAt: at(0), openPrice: 4423.8, closedAt: at(11), lots: 0.01, profit: 0.19 }),
+  ];
+
+  it("keeps every partial exit and preserves their P&L", () => {
+    const zt = clusterPositions(partials);
+    expect(zt).toHaveLength(1);
+    expect(zt[0].exitCount).toBe(3);
+    expect(zt[0].netPnl).toBeCloseTo(-5.63, 2);
+    expect(zt[0].lots).toBeCloseTo(0.05, 6);
+  });
+
+  it("counts them as ONE entry, not three", () => {
+    // Otherwise every scale-out inflates how laddered the trader looks.
+    expect(clusterPositions(partials)[0].legCount).toBe(1);
+  });
+
+  it("distinguishes a real ladder from a scaled-out single entry", () => {
+    const ladder = clusterPositions([
+      pos({ ticket: "A", openedAt: at(0), openPrice: 4350.0 }),
+      pos({ ticket: "B", openedAt: at(1), openPrice: 4349.4 }),
+    ])[0];
+    expect(ladder.legCount).toBe(2);
+    expect(ladder.exitCount).toBe(2);
+  });
+
+  it("hashes identity on (ticket, closedAt) so partials do not collide", () => {
+    const a = pos({ ticket: "X", closedAt: at(5) });
+    const b = pos({ ticket: "X", closedAt: at(6) });
+    expect(identityHash([a, b])).not.toBe(identityHash([a]));
+  });
+});

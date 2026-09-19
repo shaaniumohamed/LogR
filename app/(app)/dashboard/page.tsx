@@ -1,144 +1,212 @@
 import Link from "next/link";
-import { desc, eq } from "drizzle-orm";
-import { auth } from "@/auth";
-import { db } from "@/lib/db";
-import { zoneTrades } from "@/lib/db/schema";
-import { getOrCreateAccount } from "@/lib/account";
-import { computeStats, costPicture, hourIn, segmentBy } from "@/lib/core/metrics";
-import type { ZoneTrade } from "@/lib/core/types";
+import { computeStats, costPicture } from "@/lib/core/metrics";
+import { byHourLocal, byLocalDay } from "@/lib/core/analysis";
+import { loadTrades, recentSlice, resolvePeriod } from "@/lib/queries";
+import { PeriodTabs } from "@/components/period-tabs";
+import { BarChart, CurveChart, VersusBar } from "@/components/charts";
+import { Card, Empty, Estimated, Eyebrow, Note, Stat, StatGrid, Verdict, count, money, money0, pct } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
-const money = (n: number, d = 2) => `${n < 0 ? "−" : ""}$${Math.abs(n).toFixed(d)}`;
-const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+/** One plain sentence saying how it is going. Written before any number is shown. */
+function verdict(edge: number | null, net: number, n: number) {
+  if (edge === null) return `You have ${count(n)} logged. Not enough losses yet to judge an edge.`;
+  if (edge < 0) return `You are losing money. Your wins are not frequent enough to cover the size of your losses.`;
+  if (edge < 1) return `You are running at roughly break-even. There is an edge, but it is too small to rely on.`;
+  if (edge < 5) return `You have a real but modest edge. It works, and it would not survive much slippage.`;
+  return `You have a clear edge. Your win rate comfortably exceeds what your win and loss sizes require.`;
+}
 
-export default async function Dashboard() {
-  const session = await auth();
-  const userId = session!.user!.id!;
-  const tz = "Asia/Kuala_Lumpur"; // TODO: from users.timeZone once the settings screen lands
-  const account = await getOrCreateAccount(userId);
+export default async function Dashboard({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
+  const period = resolvePeriod((await searchParams).period);
+  const { all, trades, timeZone, isEmpty } = await loadTrades(period);
 
-  const rows = await db.select().from(zoneTrades)
-    .where(eq(zoneTrades.accountId, account.id))
-    .orderBy(desc(zoneTrades.closedAt));
-
-  if (rows.length === 0) {
+  if (isEmpty) {
     return (
-      <div className="card p-10 text-center">
-        <h1 className="text-lg font-semibold">Nothing imported yet</h1>
-        <p className="mx-auto mt-2 max-w-sm text-sm" style={{ color: "var(--ink2)" }}>
-          Import a broker CSV and this fills in. You get the numbers before you get a
-          single form to fill out.
-        </p>
-        <Link href="/import" className="mt-5 inline-block rounded-lg px-4 py-2.5 text-sm font-semibold"
-              style={{ background: "var(--ink)", color: "var(--plane)" }}>
-          Import trade history
-        </Link>
-      </div>
+      <Empty
+        title="Nothing imported yet"
+        body="Drop in a broker CSV and this fills itself in. You get the numbers before you fill out a single form."
+        action={
+          <Link href="/import" className="inline-block rounded-lg px-4 py-2.5 text-sm font-semibold"
+                style={{ background: "var(--ink)", color: "var(--plane)" }}>
+            Import trade history
+          </Link>
+        }
+      />
     );
   }
 
-  const trades: ZoneTrade[] = rows.map((r) => ({
-    id: r.identityHash, symbol: r.symbol, direction: r.direction as "long" | "short",
-    legs: [], openedAt: r.openedAt, closedAt: r.closedAt, holdMinutes: r.holdMinutes,
-    lots: r.lots, avgEntry: r.avgEntry, avgExit: r.avgExit, zoneLow: r.zoneLow,
-    zoneHigh: r.zoneHigh, zoneHeight: r.zoneHigh - r.zoneLow, netPnl: r.netPnl,
-    commission: 0, swap: 0, legCount: r.legCount,
-    closeReasons: r.closeReasons as ZoneTrade["closeReasons"], hadStop: r.hadStop,
-  }));
-
   const s = computeStats(trades);
   const cost = costPicture(s.net, s.totalLots);
-  const byHour = segmentBy(trades, (t) => `${String(hourIn(t.openedAt, tz)).padStart(2, "0")}:00`, 15);
-  const worstHours = byHour.slice(-3).reverse();
-  const layered = trades.filter((t) => t.legCount > 1).length;
+  const days = byLocalDay(trades, timeZone);
+  const hours = byHourLocal(trades, timeZone);
+
+  // Only hours that lost on most of the days they were traded. An hour can show a
+  // big negative total from one catastrophic day and be fine otherwise; calling
+  // that a pattern would send the trader after the wrong thing (docs/20 §3.3).
+  const badHours = hours.filter((h) => h.consistent).sort((a, b) => a.net - b.net).slice(0, 3);
+
+  let running = 0;
+  const curve = days.map((d) => (running += d.net));
+  const profitableDays = days.filter((d) => d.net > 0).length;
+
+  // Recent form against lifetime. These diverged sharply on real data, and showing
+  // only the lifetime figure would misrepresent how the trader is doing now.
+  const recent = recentSlice(all, 30);
+  const rs = computeStats(recent);
+  const lifetime = computeStats(all);
+  const formGap = (rs.edgePoints ?? 0) - (lifetime.edgePoints ?? 0);
+  const showForm = period === "all" && recent.length >= 30 && recent.length < all.length && Math.abs(formGap) > 1.5;
 
   return (
-    <div className="space-y-5">
-      {/* The edge, not the win rate. A 57% win rate is excellent at a 1.5 payoff
-          and exactly break-even at 0.77 — only the gap tells you which. */}
-      <div className="card p-6">
-        <div className="eyebrow">Edge over break-even</div>
-        <div className="mt-1 flex items-end gap-3">
-          <div className={`num text-5xl font-semibold tracking-tight ${(s.edgePoints ?? 0) > 0 ? "pos" : "neg"}`}>
-            {s.edgePoints !== null ? `${s.edgePoints > 0 ? "+" : "−"}${Math.abs(s.edgePoints).toFixed(2)}` : "—"}
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <PeriodTabs base="/dashboard" active={period} />
+        <span className="text-[11px]" style={{ color: "var(--ink3)" }}>
+          {count(trades.length)} · {days.length} trading {days.length === 1 ? "day" : "days"}
+        </span>
+      </div>
+
+      <Card>
+        <Eyebrow>How it is going</Eyebrow>
+        <Verdict>{verdict(s.edgePoints, s.net, s.n)}</Verdict>
+        <div className="mt-4 flex items-end gap-3">
+          <div className={`num text-4xl font-semibold tracking-tight ${s.net >= 0 ? "pos" : "neg"}`}>
+            {money(s.net)}
           </div>
-          <div className="pb-2 text-sm" style={{ color: "var(--ink2)" }}>points of win rate</div>
+          <div className="pb-1.5 text-[13px]" style={{ color: "var(--ink2)" }}>
+            kept from {count(s.n)}
+          </div>
         </div>
-        <p className="mt-3 text-sm leading-relaxed" style={{ color: "var(--ink2)" }}>
-          You win <b className="num">{pct(s.winRate)}</b> of trades. At your payoff ratio of{" "}
-          <b className="num">{s.payoff?.toFixed(2) ?? "—"}</b> you need{" "}
-          <b className="num">{s.breakEvenWinRate ? pct(s.breakEvenWinRate) : "—"}</b> just to break even.
-          {(s.edgePoints ?? 0) < 2 && (s.edgePoints ?? 0) > -99 && (
-            <> That margin is thin — a small drop in win rate or win size puts it underwater.</>
+
+        <div className="mt-5 pt-4" style={{ borderTop: "1px solid var(--line)" }}>
+          <div className="text-[13px] font-semibold">Is your win rate good enough?</div>
+          <Note>
+            A win rate only means something next to your win and loss sizes. Your average
+            win is {money(s.avgWin)} and your average loss is {money(s.avgLoss)}, so you
+            need to win <b>{s.breakEvenWinRate ? pct(s.breakEvenWinRate) : "—"}</b> of the
+            time simply to stand still.
+          </Note>
+          {s.breakEvenWinRate !== null && (
+            <VersusBar
+              actual={s.winRate} target={s.breakEvenWinRate}
+              actualLabel="You win this often" targetLabel="You need this to break even"
+              format={(v) => pct(v)}
+            />
           )}
-        </p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl sm:grid-cols-4"
-           style={{ background: "var(--line)", border: "1px solid var(--line)" }}>
-        <Tile label="Net P&L" value={money(s.net)} tone={s.net >= 0 ? "pos" : "neg"} sub={`${s.n} zone trades`} />
-        <Tile label="Profit factor" value={s.profitFactor?.toFixed(3) ?? "—"} sub={`${money(s.grossProfit, 0)} / ${money(-s.grossLoss, 0)}`} />
-        <Tile label="Avg win : loss" value={s.payoff?.toFixed(2) ?? "—"} sub={`$${s.avgWin} / $${s.avgLoss}`} />
-        <Tile label="Per trade" value={money(s.expectancy)} sub={`${s.avgHoldMinutes.toFixed(0)} min avg hold`} />
-      </div>
-
-      <div className="card p-5">
-        <div className="eyebrow">What the spread costs</div>
-        <p className="mt-2 text-sm leading-relaxed" style={{ color: "var(--ink2)" }}>
-          It is inside your fill price, so your net is <b>already after it</b> — not a hidden
-          charge, a hurdle each trade cleared. Over {s.totalLots} lots that hurdle was{" "}
-          <b className="num">{money(cost.costLo, 0)}–{money(cost.costHi, 0)}</b>, which makes your
-          gross edge <b className="num">{money(cost.grossLo, 0)}–{money(cost.grossHi, 0)}</b>. You keep{" "}
-          <b className="num">{cost.keptLo !== null ? `${(cost.keptLo * 100).toFixed(0)}–${(cost.keptHi! * 100).toFixed(0)}%` : "—"}</b> of it.
-        </p>
-      </div>
-
-      {worstHours.length > 0 && (
-        <div className="card p-5">
-          <div className="eyebrow">Your worst hours — your local time</div>
-          <p className="mt-1 text-xs" style={{ color: "var(--ink3)" }}>
-            The export is UTC. These are converted to {tz.replace("_", " ")}, because
-            &ldquo;avoid 13:00 UTC&rdquo; is an abstraction and &ldquo;avoid 9pm&rdquo; is a decision.
-          </p>
-          <div className="mt-3 space-y-2">
-            {worstHours.map((h) => (
-              <div key={h.key} className="flex items-baseline justify-between text-sm">
-                <span className="num">{h.key}</span>
-                <span style={{ color: "var(--ink3)" }} className="text-xs">n={h.stats.n}</span>
-                <span className={`num font-semibold ${h.stats.net >= 0 ? "pos" : "neg"}`}>
-                  {money(h.stats.net, 0)}
-                </span>
-              </div>
-            ))}
-          </div>
-          <p className="mt-3 text-xs" style={{ color: "var(--ink3)" }}>
-            Check per-day consistency before acting — one catastrophic day inside a window
-            can look exactly like a pattern.
-          </p>
+          {s.edgePoints !== null && (
+            <p className="mt-3 text-[13px]">
+              <b className={s.edgePoints > 0 ? "pos" : "neg"}>
+                {s.edgePoints > 0 ? "+" : "−"}{Math.abs(s.edgePoints).toFixed(2)} points
+              </b>{" "}
+              <span style={{ color: "var(--ink2)" }}>
+                of margin{s.edgePoints > 0 && s.edgePoints < 2 ? " — thin enough that a bad week erases it" : ""}.
+              </span>
+            </p>
+          )}
         </div>
+      </Card>
+
+      <StatGrid>
+        <Stat label="Won" value={pct(s.winRate)} sub={`${s.wins} won, ${s.losses} lost`} />
+        <Stat label="Made per $1 lost" value={s.profitFactor?.toFixed(2) ?? "—"}
+              sub={`${money0(s.grossProfit)} in, ${money0(-s.grossLoss)} out`} />
+        <Stat label="Average trade" value={money(s.expectancy)} tone={s.expectancy >= 0 ? "pos" : "neg"}
+              sub={`${s.avgHoldMinutes.toFixed(0)} min typical hold`} />
+        <Stat label="Winning days" value={`${profitableDays} of ${days.length}`}
+              sub={days.length ? pct(profitableDays / days.length, 0) : undefined} />
+      </StatGrid>
+
+      {showForm && (
+        <Card>
+          <Eyebrow>Recent form</Eyebrow>
+          <Verdict>
+            Your last 30 days look {formGap > 0 ? "much better" : "worse"} than your lifetime
+            average, so the all-time number {formGap > 0 ? "understates" : "overstates"} where
+            you are now.
+          </Verdict>
+          <div className="mt-4 grid grid-cols-2 gap-4">
+            {[["Last 30 days", rs], ["All time", lifetime]].map(([label, st]) => {
+              const x = st as typeof rs;
+              return (
+                <div key={label as string} className="rounded-lg p-3" style={{ background: "var(--s3)" }}>
+                  <div className="text-[11px] font-semibold" style={{ color: "var(--ink2)" }}>{label as string}</div>
+                  <div className={`num mt-1 text-lg font-semibold ${(x.edgePoints ?? 0) > 0 ? "pos" : "neg"}`}>
+                    {x.edgePoints !== null ? `${x.edgePoints > 0 ? "+" : "−"}${Math.abs(x.edgePoints).toFixed(1)} pts` : "—"}
+                  </div>
+                  <div className="text-[11px]" style={{ color: "var(--ink3)" }}>
+                    {money0(x.net)} · {count(x.n)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
       )}
 
-      <div className="card p-5">
-        <div className="eyebrow">How you trade</div>
-        <p className="mt-2 text-sm" style={{ color: "var(--ink2)" }}>
-          {layered} of {trades.length} zone trades ({((layered / trades.length) * 100).toFixed(0)}%)
-          were laddered, averaging{" "}
-          <b className="num">{(trades.reduce((a, t) => a + t.legCount, 0) / trades.length).toFixed(2)}</b>{" "}
-          entries each. Only <b className="num">{trades.filter((t) => t.hadStop).length}</b> carried a
-          platform stop — which is why R has to come from a declared invalidation, not the export.
-        </p>
-      </div>
-    </div>
-  );
-}
+      <Card>
+        <Eyebrow>Money over time</Eyebrow>
+        <Verdict>
+          Running total across {days.length} trading {days.length === 1 ? "day" : "days"}.
+          The shaded area shows how far you fell below your best point.
+        </Verdict>
+        <CurveChart points={curve} format={(v) => money0(v)} aria="Running profit with drawdown shaded" />
+      </Card>
 
-function Tile({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "pos" | "neg" }) {
-  return (
-    <div className="p-4" style={{ background: "var(--s1)" }}>
-      <div className={`num text-xl font-semibold tracking-tight ${tone ?? ""}`}>{value}</div>
-      <div className="mt-1 text-[11px] font-medium" style={{ color: "var(--ink3)" }}>{label}</div>
-      {sub && <div className="num mt-0.5 text-[10px]" style={{ color: "var(--ink3)" }}>{sub}</div>}
+      <Card>
+        <Eyebrow>What the spread costs you<Estimated /></Eyebrow>
+        <Verdict>
+          Your trading earned roughly <b>{money0(cost.grossLo)}–{money0(cost.grossHi)}</b> before
+          costs. The spread took <b className="neg">{money0(cost.costLo)}–{money0(cost.costHi)}</b> of
+          it. You kept <b>{money(s.net)}</b>.
+        </Verdict>
+        <BarChart
+          rows={[
+            { label: "What you earned", value: (cost.grossLo + cost.grossHi) / 2, meta: "before costs" },
+            { label: "Spread took", value: -(cost.costLo + cost.costHi) / 2, meta: `over ${s.totalLots.toFixed(1)} lots` },
+            { label: "You kept", value: s.net, meta: "after costs", flag: true },
+          ]}
+          format={(v) => money0(v)} labelWidth={112} aria="Earnings before costs, spread cost, and what was kept"
+        />
+        <Note>
+          <b>Why this is not on your statement:</b> the spread is baked into the price you were
+          filled at, so it never appears as a charge. It is the gap every trade has to cover
+          before it earns you anything — which is why a strategy can be right more often than
+          it is wrong and still leave you close to flat.
+          <br /><br />
+          <b>Worth checking:</b> a raw-spread account charges visible commission but quotes far
+          tighter. At {s.totalLots.toFixed(1)} lots that trade-off is arithmetic, not opinion.
+        </Note>
+      </Card>
+
+      {badHours.length > 0 && (
+        <Card>
+          <Eyebrow>Hours that keep costing you</Eyebrow>
+          <Verdict>
+            These are the times of day, in your own local time, where you lost money on most
+            of the days you traded them — not just once badly.
+          </Verdict>
+          <BarChart
+            rows={badHours.map((h) => ({
+              label: `${h.label}`,
+              value: h.net,
+              meta: `${count(h.trades)} · lost on ${h.losingDays} of ${h.days} days`,
+            }))}
+            format={(v) => money0(v)} labelWidth={74} aria="Hours of day with repeated losses"
+          />
+          <Note>
+            Dropping just your worst hour would have changed this period by{" "}
+            <b>{money0(-badHours[0].net)}</b>. That is the cheapest change available to you:
+            it needs no new skill, only not trading then.
+          </Note>
+        </Card>
+      )}
+
+      <div className="pt-1 text-center">
+        <Link href="/analytics" className="text-[13px] font-semibold" style={{ color: "var(--c1)" }}>
+          See every pattern in your trading →
+        </Link>
+      </div>
     </div>
   );
 }

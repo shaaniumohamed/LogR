@@ -17,6 +17,8 @@ export interface ParseResult {
   positions: Position[];
   /** Rows the parser could not use, with the reason — surfaced, never silent. */
   skipped: { line: number; reason: string; raw: string }[];
+  /** Exact repeats of an existing (ticket, closedAt) — the same exit twice. */
+  duplicates: number;
   /** Broker totals for the reconciliation screen. */
   summary: {
     rows: number;
@@ -87,9 +89,19 @@ function splitCsvLine(line: string): string[] {
 
 const CLOSE_REASONS: CloseReason[] = ["user", "tp", "sl", "so"];
 
+/**
+ * Identity of a close event. NOT the ticket alone — partial exits of one
+ * position all share it (see the Position docstring).
+ */
+export function positionKey(ticket: string, closedAt: Date): string {
+  return `${ticket}@${closedAt.toISOString()}`;
+}
+
 export function parseExnessCsv(text: string): ParseResult {
   const skipped: ParseResult["skipped"] = [];
   const positions: Position[] = [];
+  const seen = new Set<string>();
+  let duplicates = 0;
 
   const lines = text.replace(/^﻿/, "").split(/\r?\n/).filter((l) => l.trim() !== "");
   if (lines.length < 2) {
@@ -133,6 +145,12 @@ export function parseExnessCsv(text: string): ParseResult {
       ? (reasonRaw as CloseReason)
       : "unknown";
 
+    // Same exit reported twice (overlapping exports pasted together). A partial
+    // close is NOT this: it differs on closedAt, so it survives.
+    const key = positionKey(ticket, closedAt);
+    if (seen.has(key)) { duplicates++; continue; }
+    seen.add(key);
+
     positions.push({
       ticket,
       openedAt,
@@ -163,6 +181,7 @@ export function parseExnessCsv(text: string): ParseResult {
   return {
     positions,
     skipped,
+    duplicates,
     summary: {
       rows: lines.length - 1,
       parsed: positions.length,

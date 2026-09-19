@@ -8,11 +8,21 @@
 export type CloseReason = "user" | "tp" | "sl" | "so" | "unknown";
 
 /**
- * One closed position, as exported by the broker.
+ * One CLOSE EVENT, as exported by the broker.
  *
- * Exness exports at POSITION level, not deal level, so each row is already a
- * complete round trip. That removes the MT5 deal-aggregation problem entirely
- * for this broker (see docs/03 §3 and docs/20 §1).
+ * Exness exports at position level rather than deal level, so each row is a
+ * complete round trip — which removes the MT5 deal-aggregation problem for this
+ * broker. But a row is not a position: when a position is closed in parts, the
+ * export emits ONE ROW PER PARTIAL EXIT, every one of them carrying the parent
+ * position's ticket, with the same open time and open price.
+ *
+ * So `ticket` is NOT unique. Verified on a real export: five tickets appeared
+ * 2–3 times each, identical on entry and differing only on close time, volume
+ * and result. Keying storage on ticket alone silently discards real exits and
+ * makes the stored P&L disagree with the broker (docs/20 §1).
+ *
+ * The identity of a row is (ticket, closedAt): a single position cannot close
+ * twice at the same instant.
  */
 export interface Position {
   ticket: string;
@@ -58,8 +68,13 @@ export interface ZoneTrade {
   netPnl: number;
   commission: number;
   swap: number;
-  /** How many legs filled, and the mix of close reasons across them. */
+  /**
+   * Distinct entry tickets — the real depth of the ladder.
+   * Not the row count, because partial exits repeat their parent's ticket.
+   */
   legCount: number;
+  /** Close events. Exceeds legCount when positions were scaled out of. */
+  exitCount: number;
   closeReasons: CloseReason[];
   /** True when any leg carried a platform stop. */
   hadStop: boolean;
