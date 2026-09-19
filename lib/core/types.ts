@@ -105,3 +105,26 @@ export interface Stats {
   totalLots: number;
   expectancy: number;
 }
+
+/**
+ * Something the trader marked on the chart.
+ *
+ * One shape covers everything they actually draw. A demand zone, a supply zone,
+ * a liquidity pool and a fib pocket are all a price band with a name; a level is
+ * the same band with zero height. Collapsing them into one record means the
+ * chart has one renderer and the analytics have one thing to count, instead of
+ * four near-identical shapes that drift apart.
+ *
+ * `low`/`high` are prices, not screen coordinates — a drawing that moved when
+ * the chart was zoomed would be worthless.
+ */
+export interface Drawing {
+  /** Stable within one trade; used as a React key and to delete. */
+  id: string;
+  kind: "zone" | "level";
+  low: number;
+  /** Equal to `low` for a level. */
+  high: number;
+  /** One of DRAWING_LABELS, or free text the trader typed. */
+  label: string;
+}

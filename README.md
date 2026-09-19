@@ -3,8 +3,23 @@
 A trade journal for leveraged CFD traders, with native MetaTrader 5 auto-sync.
 Web app, deployable on Vercel.
 
-> **Status: planning / brainstorm.** No code yet — the docs below are the design
-> work that comes before it.
+> **Status: running.** The app is built and deployable; `docs/` is the design work
+> that came before it and still explains most of the *why*. See
+> [SETUP.md](SETUP.md) to run or deploy it.
+
+## What is built
+
+- **CSV import** of the broker's own order history, parsed in the browser and
+  reconciled against the statement before anything is written.
+- **Zone trades** — a ladder of entries into one level, the partials taken out of
+  it and the runner, clustered back into the single trade it was.
+- **Analytics** by hour, weekday, session, hold time, setup, confluence, emotion
+  and mistake, all in the trader's own time zone, all with the sample size stated.
+- **Price history import** and a real candlestick chart per trade, with every fill
+  drawn where it happened and the zones the trader marks saved with the trade.
+- **Annotation** of setup, invalidation, confluences, mistakes and state of mind,
+  keyed to a stable trade identity so re-deriving never destroys it.
+- **Google sign-in** with an optional address allow-list.
 
 ## The short version
 
@@ -50,6 +65,10 @@ change what you do tomorrow. LogR attacks both.
 | [18 — Design System](docs/18-design-system.md) | Validated palette, type, charts, screens, prototype plan |
 | [19 — Analytics Catalog](docs/19-analytics.md) | Every chart the app ships, what question each answers |
 | [20 — Real-Data Validation](docs/20-real-data-validation.md) | What a real broker export proved, disproved and changed |
+
+Where the code and a doc disagree, the code is what shipped — the docs were
+written first and some of their conclusions were overturned by real data
+(docs/20 records which).
 
 ## Data handling rule for this repo
 

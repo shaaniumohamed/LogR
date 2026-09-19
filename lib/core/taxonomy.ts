@@ -143,3 +143,23 @@ export const MISTAKES = [
 
 export const mistakeLabel = (key: string) =>
   MISTAKES.find((m) => m.key === key)?.label ?? key;
+
+/**
+ * What a drawing on the chart is FOR.
+ *
+ * Kept to the things this trader actually marks, and worded the way MSNR and
+ * SMC talk about them, so a label can later be cross-referenced with the
+ * confluence tags on the same trade: "your fresh demand zones return 3× what
+ * your unfresh ones do" is only possible if both sides use the same words.
+ */
+export const DRAWING_LABELS = [
+  { key: "demand", label: "Demand zone", kind: "zone" },
+  { key: "supply", label: "Supply zone", kind: "zone" },
+  { key: "flip", label: "Flip level", kind: "zone" },
+  { key: "liquidity", label: "Liquidity", kind: "level" },
+  { key: "target", label: "Target", kind: "level" },
+  { key: "structure", label: "Structure", kind: "level" },
+] as const;
+
+export const drawingLabel = (key: string) =>
+  DRAWING_LABELS.find((d) => d.key === key)?.label ?? key;

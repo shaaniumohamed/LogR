@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { tradeAnnotations, users } from "@/lib/db/schema";
+import type { Drawing } from "@/lib/core/types";
 import { getOrCreateAccount } from "@/lib/account";
 
 /**
@@ -65,6 +66,42 @@ export async function saveAnnotation(identityHash: string, form: FormData) {
   revalidatePath("/trades");
   revalidatePath("/review");
   revalidatePath("/analytics");
+  return { ok: true };
+}
+
+/**
+ * Save what the trader marked on the chart.
+ *
+ * Separate from saveAnnotation because it is a different act at a different
+ * moment: drawing happens while looking at the chart, the rest of the form is
+ * filled in afterwards. Sharing one submit would mean either losing drawings
+ * when the form is saved from a stale render, or forcing the trader to finish
+ * the whole form before a zone they just drew is safe.
+ *
+ * Only the drawings column is written, so the two can never overwrite each other.
+ */
+export async function saveDrawings(identityHash: string, drawings: Drawing[]) {
+  const session = await auth();
+  const userId = session?.user?.id;
+  if (!userId) return { ok: false, error: "Not signed in" };
+  const account = await getOrCreateAccount(userId);
+
+  const clean = drawings.slice(0, 40).map((d) => ({
+    id: String(d.id).slice(0, 40),
+    kind: d.kind === "zone" ? ("zone" as const) : ("level" as const),
+    low: Number(d.low),
+    high: Number(d.high),
+    label: String(d.label).slice(0, 40),
+  })).filter((d) => Number.isFinite(d.low) && Number.isFinite(d.high));
+
+  await db.insert(tradeAnnotations)
+    .values({ userId, accountId: account.id, identityHash, drawings: clean, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: [tradeAnnotations.accountId, tradeAnnotations.identityHash],
+      set: { drawings: clean, updatedAt: new Date() },
+    });
+
+  revalidatePath("/trades");
   return { ok: true };
 }
 

@@ -3,6 +3,7 @@ import {
   real, text, timestamp, uniqueIndex, varchar,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
+import type { Drawing } from "@/lib/core/types";
 
 /* ------------------------------------------------------------------ auth.js */
 export const users = pgTable("user", {
@@ -155,6 +156,14 @@ export const tradeAnnotations = pgTable("trade_annotation", {
   mistakes: text("mistakes").array().notNull().default([]),
   emotion: text("emotion"),
   note: text("note"),
+  /**
+   * What the trader drew on the chart: the zones and levels that made them take
+   * the trade. JSONB rather than columns because the shapes are open-ended — a
+   * demand zone, a liquidity level and a fib retracement are all just a price
+   * band with a name, and a table per shape would be four tables holding the
+   * same two numbers. See Drawing in lib/core/types.ts for the shape.
+   */
+  drawings: jsonb("drawings").$type<Drawing[]>(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [uniqueIndex("annotation_identity_idx").on(t.accountId, t.identityHash)]);
 
@@ -171,3 +180,43 @@ export const importBatches = pgTable("import_batch", {
   meta: jsonb("meta"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+/**
+ * Market price history: one-minute bars.
+ *
+ * DELIBERATELY NOT PER-USER. A gold bar at 14:32 UTC is the same bar for
+ * everybody; keying it to a user would store the same candle once per trader
+ * for no gain, and there is nothing private in it — it is public market data,
+ * unlike the fills in `position`. One trader importing a month covers the rest.
+ *
+ * Only M1 is stored. M5, M15 and H1 are rolled up on read (aggregate() in
+ * lib/core/parse-candles.ts), which costs microseconds and saves storing the
+ * same information four times.
+ *
+ * Size: XAUUSD trades about 23 hours a day, five days a week, so a year is
+ * roughly 360,000 bars. At ~110 bytes a row including the primary-key index
+ * that is about 40 MB a year — around a decade of gold inside Neon's free 0.5 GB
+ * alongside the trade data, which is well past the point where a paid tier is
+ * an easy decision.
+ */
+export const priceBars = pgTable("price_bar", {
+  symbol: text("symbol").notNull(),
+  /** Bar OPEN time, UTC, always aligned to the minute. */
+  t: timestamp("t", { withTimezone: true }).notNull(),
+  /**
+   * doublePrecision, matching every other price in this schema. float4 would
+   * halve the footprint and gold's tick is far coarser than its precision, but a
+   * second float width in the same database is a trap for anyone later comparing
+   * a bar to a fill, and the saving is ~6 MB a year against a 500 MB budget.
+   */
+  open: doublePrecision("open").notNull(),
+  high: doublePrecision("high").notNull(),
+  low: doublePrecision("low").notNull(),
+  close: doublePrecision("close").notNull(),
+  /** Where it came from, so a bad import can be identified and replaced. */
+  source: text("source").notNull().default("csv"),
+}, (t) => [
+  // (symbol, t) is both the identity and exactly the order a window query wants:
+  // WHERE symbol = ? AND t BETWEEN ? AND ? reads one contiguous run of the index.
+  primaryKey({ columns: [t.symbol, t.t] }),
+]);

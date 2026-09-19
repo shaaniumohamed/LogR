@@ -17,7 +17,15 @@ for (const file of [".env.local", ".env"]) {
   }
 }
 
-if (!process.env.DATABASE_URL) {
+/**
+ * `generate` only diffs the schema file against the migration journal, so it has
+ * to work with no database in reach — on a fresh clone, in CI, and anywhere the
+ * connection string is deliberately absent. Only the commands that actually
+ * connect are worth failing early for.
+ */
+const NEEDS_DB = !process.argv.includes("generate");
+
+if (NEEDS_DB && !process.env.DATABASE_URL) {
   throw new Error(
     "DATABASE_URL is not set.\n" +
       "Create .env.local in the project root with your Neon pooled connection string:\n" +
@@ -29,5 +37,5 @@ export default {
   schema: "./lib/db/schema.ts",
   out: "./drizzle",
   dialect: "postgresql",
-  dbCredentials: { url: process.env.DATABASE_URL },
+  dbCredentials: { url: process.env.DATABASE_URL ?? "" },
 } satisfies Config;

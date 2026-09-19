@@ -46,9 +46,12 @@ npx auth secret          # writes AUTH_SECRET for you
 
 ```bash
 npm run db:push          # pushes the schema straight to Neon
-# or, to apply the checked-in migration instead:
-#   npm run db:generate && (apply drizzle/*.sql)
 ```
+
+Run this again after any `git pull` that changes `lib/db/schema.ts`. It is
+non-destructive for additive changes and prints what it is about to do. The
+checked-in files in `drizzle/` are the same changes as SQL, if you would rather
+apply them by hand.
 
 ## 5. Run it
 
@@ -88,8 +91,12 @@ if you have not already.
 Exness Personal Area → **Trading → History of orders → Download CSV**.
 
 The export is capped at 1,000 rows, so pull it in date chunks. Re-importing an
-overlapping range is harmless — positions are unique on `(account, ticket)`, so a
-repeat insert is a no-op rather than a duplicate.
+overlapping range is harmless — rows are unique on `(account, ticket, closedAt)`,
+so a repeat insert is a no-op rather than a duplicate.
+
+That key is deliberate. A ticket identifies a *position*, and a position closed in
+parts emits one row per partial exit, all carrying the same ticket. Keying on the
+ticket alone silently drops real exits.
 
 The CSV is parsed **in your browser**; only normalised rows are sent to the server.
 That keeps a multi-month export well clear of serverless request limits, and you
@@ -97,6 +104,34 @@ see the reconciliation screen before anything is saved.
 
 **Do not import the Trading Analytics PDF** — it is a summary of totals with no
 per-trade rows. The importer detects it and says so rather than failing obscurely.
+
+## Importing price history
+
+**Import → Price history.** Optional, and it needs no extra configuration or
+service — price bars live in the same Neon database.
+
+Any CSV works as long as each row carries a timestamp followed by open, high, low
+and close; the separator, the column order and whether there is a header are all
+worked out from the file. Free sources:
+
+| Source | Format | Time zone |
+|---|---|---|
+| HistData.com | `YYYYMMDD HHMMSS;O;H;L;C;V`, one zip a month | **US Eastern** — pick it in the dropdown |
+| Dukascopy historical feed | CSV with a header | UTC |
+| MT5 desktop / TradingView chart export | CSV with a header | the platform's own |
+
+Before anything is saved the file is checked against your own fills: a fill
+happened at a price the market was really trading, so it must sit inside the high
+and low of the minute it happened in. The screen reports what share of your fills
+pass, and if the file is simply in the wrong zone it works out the shift and
+offers to apply it. A file that spans a daylight-saving change is recognised as
+such, because no single shift can fix one.
+
+Bars are stored at one minute only; five-minute, fifteen-minute and hourly views
+are rolled up in the browser. Roughly 40 MB a year for gold.
+
+Price history is **shared between accounts**, not per user — a gold candle is the
+same candle for everybody, and there is nothing private in it.
 
 ## Commands
 
@@ -110,4 +145,5 @@ npm run typecheck   npm test            npm run db:push    npm run db:studio
 Nothing in this stack bills by default. Neon's free project suspends when idle and
 resumes on the next query in well under a second; Vercel Hobby has no spend unless
 you opt in. The only thing to watch is Neon's 0.5 GB — roughly a decade of trading
-at 100 orders a day, so not soon.
+at 100 orders a day for the trade data itself. One-minute candles add about 40 MB
+a year per instrument, which still leaves the better part of a decade.

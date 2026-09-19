@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { loadAnnotation } from "@/lib/actions";
 import { loadTradeWithLegs, loadTrades } from "@/lib/queries";
 import { TradeChart } from "@/components/trade-chart";
+import { contextWindow, loadBars } from "@/lib/candles";
+import { ChartPanel } from "./chart-panel";
 import { Card, Eyebrow, Note, Stat, StatGrid, money, pct } from "@/components/ui";
 import { Info } from "@/components/info";
 import { AnnotateForm } from "./annotate-form";
@@ -22,6 +24,16 @@ export default async function TradeDetail({ params, searchParams }: {
 
   const existing = (await loadAnnotation(account.id, id)) ?? null;
   const withLegs = await loadTradeWithLegs(account.id, id);
+
+  // Candles for a window around the trade, if any have been imported. Loaded at
+  // one minute and rolled up in the browser, so the timeframe buttons are free.
+  const { from: barsFrom, to: barsTo } = contextWindow(t.openedAt, t.closedAt);
+  const bars = await loadBars(t.symbol, barsFrom, barsTo);
+
+  const fills = (withLegs?.legs ?? []).flatMap((l) => [
+    { kind: "in" as const, time: Math.floor(l.openedAt.getTime() / 1000), price: l.openPrice, lots: l.lots, profit: l.profit },
+    { kind: "out" as const, time: Math.floor(l.closedAt.getTime() / 1000), price: l.closePrice, lots: l.lots, profit: l.profit },
+  ]);
 
   // Proposed from the zone's own geometry: just beyond the far edge of where the
   // entries filled. The trader confirms or corrects it — a proposal they only
@@ -91,22 +103,58 @@ export default async function TradeDetail({ params, searchParams }: {
       {withLegs && withLegs.legs.length > 0 && (
         <Card>
           <Eyebrow>How it played out</Eyebrow>
-          <Note>
-            Every entry and exit, plotted against price and time.
-          </Note>
-          <div className="mt-3">
-            <TradeChart legs={withLegs.legs} zoneLow={t.zoneLow} zoneHigh={t.zoneHigh}
-                        invalidation={existing?.invalidation ?? null}
-                        direction={t.direction} timeZone={timeZone} />
-          </div>
-          <Info title="Why there are no candles">
-            Your broker export contains your fills, not the market's price history — so this
-            shows exactly where you entered and exited, but not what price did in between.
-            Adding real candles needs a market-data feed, which is the next step.
-            <br /><br />
-            Set the invalidation below and it appears here as a line, so you can see at a
-            glance whether each exit respected it.
-          </Info>
+          {bars.length > 0 ? (
+            <>
+              <Note>
+                Real price, with every entry and exit where it actually happened. Mark the
+                zones and levels you were trading — they save with the trade.
+              </Note>
+              <div className="mt-3">
+                <ChartPanel
+                  identityHash={t.id}
+                  bars={bars}
+                  fills={fills}
+                  timeZone={timeZone}
+                  symbol={t.symbol}
+                  zoneFromFills={{ low: t.zoneLow, high: t.zoneHigh }}
+                  invalidation={existing?.invalidation ?? null}
+                  initialDrawings={existing?.drawings ?? []}
+                />
+              </div>
+              <Info title="How to read this">
+                The blue arrows are your entries and the circles are your exits, each at the
+                exact price it filled — green where that exit made money, red where it lost.
+                The solid blue band is the range your ladder actually filled into; it is drawn
+                from your fills, not from anything you typed.
+                <br /><br />
+                Your own mark-up appears as dashed gold bands. Draw the level you were trading
+                and the zone your fills landed in becomes something you can compare it against:
+                did you get filled where you meant to, or did you chase?
+                <br /><br />
+                The red dashed line is your invalidation, set in the form below.
+              </Info>
+            </>
+          ) : (
+            <>
+              <Note>
+                Every entry and exit, plotted against price and time.
+              </Note>
+              <div className="mt-3">
+                <TradeChart legs={withLegs.legs} zoneLow={t.zoneLow} zoneHigh={t.zoneHigh}
+                            invalidation={existing?.invalidation ?? null}
+                            direction={t.direction} timeZone={timeZone} />
+              </div>
+              <Info title="Why there are no candles here">
+                Your broker export contains your fills, not the market&rsquo;s price history — so
+                this shows exactly where you entered and exited, but not what price did in
+                between.
+                <br /><br />
+                Import a price file on the <b>Import → Price history</b> screen and this becomes
+                a real chart with your fills drawn on it, which you can then mark up. It is free
+                and takes one file.
+              </Info>
+            </>
+          )}
         </Card>
       )}
 
