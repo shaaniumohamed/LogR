@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+/* Tokens from docs/18-design-system.md. Every colour was run through a
+   colour-vision validator; the profit/loss pair sits in the band where hue alone
+   is insufficient, so secondary encoding (signs, baselines, printed values) is
+   mandatory wherever it appears. */
+@theme {
+  --font-sans: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+:root {
+  --plane: #f3f3f1;
+  --s1: #fcfcfb;
+  --s2: #ffffff;
+  --s3: #f0efec;
+  --line: rgb(11 11 11 / 0.10);
+  --ink: #0b0b0b;
+  --ink2: #52514e;
+  --ink3: #898781;
+  --grid: #e1e0d9;
+  --profit: #1baf7a;
+  --loss: #e34948;
+  --c1: #2a78d6;
+  --c2: #eda100;
+  --warn: #fab219;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --plane: #0a0b0d; --s1: #12141a; --s2: #191c23; --s3: #1f232b;
+    --line: rgb(255 255 255 / 0.08);
+    --ink: #f4f5f7; --ink2: #9ba1ac; --ink3: #6b7280; --grid: #22262e;
+    --profit: #199e70; --loss: #e66767; --c1: #3987e5; --c2: #c98500;
+  }
+}
+:root[data-theme="dark"] {
+  --plane: #0a0b0d; --s1: #12141a; --s2: #191c23; --s3: #1f232b;
+  --line: rgb(255 255 255 / 0.08);
+  --ink: #f4f5f7; --ink2: #9ba1ac; --ink3: #6b7280; --grid: #22262e;
+  --profit: #199e70; --loss: #e66767; --c1: #3987e5; --c2: #c98500;
+}
+
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--plane);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.pos { color: var(--profit); }
+.neg { color: var(--loss); }
+.card { background: var(--s1); border: 1px solid var(--line); border-radius: 12px; }
+.eyebrow {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--ink3);
+}
