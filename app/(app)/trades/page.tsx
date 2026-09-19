@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { computeStats } from "@/lib/core/metrics";
+import { computeStats, hourIn } from "@/lib/core/metrics";
+import { sessionOf, weekdayIn } from "@/lib/core/analysis";
 import { loadTrades, resolvePeriod } from "@/lib/queries";
 import { PeriodTabs } from "@/components/period-tabs";
 import { Card, Empty, Stat, StatGrid, count, money, pct } from "@/components/ui";
@@ -36,8 +37,11 @@ function endedHow(t: ZoneTrade): string | null {
   return null;
 }
 
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as const;
+const SESSIONS = ["Asia", "London", "New York", "Late"] as const;
+
 export default async function Trades({ searchParams }: {
-  searchParams: Promise<{ period?: string; filter?: string; page?: string }>;
+  searchParams: Promise<{ period?: string; filter?: string; page?: string; day?: string; session?: string }>;
 }) {
   const sp = await searchParams;
   const period = resolvePeriod(sp.period);
@@ -50,7 +54,19 @@ export default async function Trades({ searchParams }: {
     return <Empty title="No trades yet" body="Import a broker CSV and every trade shows up here." />;
   }
 
-  const filtered = applyFilter(trades, filter);
+  const day = WEEKDAYS.includes(sp.day as typeof WEEKDAYS[number]) ? sp.day! : null;
+  const sess = SESSIONS.includes(sp.session as typeof SESSIONS[number]) ? sp.session! : null;
+
+  let filtered = applyFilter(trades, filter);
+  if (day) filtered = filtered.filter((t) => weekdayIn(t.openedAt, timeZone) === day);
+  if (sess) filtered = filtered.filter((t) => sessionOf(hourIn(t.openedAt, timeZone)) === sess);
+  const qs = (o: Record<string, string | null>) => {
+    const p = new URLSearchParams({ period, filter });
+    if (day) p.set("day", day);
+    if (sess) p.set("session", sess);
+    for (const [k, v] of Object.entries(o)) v === null ? p.delete(k) : p.set(k, v);
+    return `/trades?${p.toString()}`;
+  };
   const s = computeStats(filtered);
   const pages = Math.max(1, Math.ceil(filtered.length / PER));
   const shown = filtered.slice((page - 1) * PER, page * PER);
@@ -69,7 +85,7 @@ export default async function Trades({ searchParams }: {
         {FILTERS.map((f) => {
           const on = f.key === filter;
           return (
-            <Link key={f.key} href={`/trades?period=${period}&filter=${f.key}`} scroll={false}
+            <Link key={f.key} href={qs({ filter: f.key, page: null })} scroll={false}
                   className="shrink-0 rounded-full px-3.5 py-1.5 text-[12px] font-medium"
                   style={on
                     ? { background: "var(--ink)", color: "var(--plane)" }
@@ -78,6 +94,28 @@ export default async function Trades({ searchParams }: {
             </Link>
           );
         })}
+      </div>
+
+      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+        {WEEKDAYS.map((d) => (
+          <Link key={d} href={qs({ day: day === d ? null : d, page: null })} scroll={false}
+                className="shrink-0 rounded-full px-3 py-1.5 text-[12px] font-medium"
+                style={day === d
+                  ? { background: "var(--c1)", color: "#fff" }
+                  : { background: "var(--s1)", color: "var(--ink2)", border: "1px solid var(--line)" }}>
+            {d.slice(0, 3)}
+          </Link>
+        ))}
+        <span className="shrink-0 self-center px-1" style={{ color: "var(--line)" }}>|</span>
+        {SESSIONS.map((x) => (
+          <Link key={x} href={qs({ session: sess === x ? null : x, page: null })} scroll={false}
+                className="shrink-0 rounded-full px-3 py-1.5 text-[12px] font-medium"
+                style={sess === x
+                  ? { background: "var(--c1)", color: "#fff" }
+                  : { background: "var(--s1)", color: "var(--ink2)", border: "1px solid var(--line)" }}>
+            {x}
+          </Link>
+        ))}
       </div>
 
       <StatGrid cols={3}>
@@ -91,8 +129,8 @@ export default async function Trades({ searchParams }: {
           {shown.map((t, i) => {
             const how = endedHow(t);
             return (
-              <li key={t.id} className="flex items-center gap-3 px-4 py-3"
-                  style={{ borderTop: i === 0 ? "none" : "1px solid var(--line)" }}>
+              <li key={t.id} style={{ borderTop: i === 0 ? "none" : "1px solid var(--line)" }}>
+                <Link href={`/trades/${t.id}`} className="flex items-center gap-3 px-4 py-3">
                 <span className="h-7 w-1 shrink-0 rounded-full"
                       style={{ background: t.netPnl >= 0 ? "var(--profit)" : "var(--loss)" }} />
                 <div className="min-w-0 flex-1">
@@ -113,6 +151,8 @@ export default async function Trades({ searchParams }: {
                 <div className={`num shrink-0 text-right text-[14px] font-semibold ${t.netPnl >= 0 ? "pos" : "neg"}`}>
                   {money(t.netPnl)}
                 </div>
+                <span className="shrink-0" style={{ color: "var(--ink3)" }}>›</span>
+                </Link>
               </li>
             );
           })}
@@ -122,11 +162,11 @@ export default async function Trades({ searchParams }: {
       {pages > 1 && (
         <div className="flex items-center justify-between text-[13px]">
           {page > 1
-            ? <Link href={`/trades?period=${period}&filter=${filter}&page=${page - 1}`} style={{ color: "var(--c1)" }}>← Newer</Link>
+            ? <Link href={qs({ page: String(page - 1) })} style={{ color: "var(--c1)" }}>← Newer</Link>
             : <span />}
           <span style={{ color: "var(--ink3)" }}>Page {page} of {pages}</span>
           {page < pages
-            ? <Link href={`/trades?period=${period}&filter=${filter}&page=${page + 1}`} style={{ color: "var(--c1)" }}>Older →</Link>
+            ? <Link href={qs({ page: String(page + 1) })} style={{ color: "var(--c1)" }}>Older →</Link>
             : <span />}
         </div>
       )}

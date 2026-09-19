@@ -11,9 +11,10 @@ const NAV = [
   { href: "/dashboard", label: "Overview", icon: "M3 9l7-6 7 6v9a1 1 0 0 1-1 1h-4v-5H8v5H4a1 1 0 0 1-1-1z" },
   { href: "/trades", label: "Trades", icon: "M4 4h12v12H4zM7 8h6M7 11h4" },
   { href: "/analytics", label: "Patterns", icon: "M4 16V9M8 16V5M12 16v-5M16 16V7" },
-  { href: "/import", label: "Import", icon: "M10 3v10M6 9l4 4 4-4M4 17h12" },
-  { href: "/settings", label: "Settings", icon: "M3 6h14M3 10h14M3 14h14" },
+  { href: "/review", label: "Review", icon: "M4 3h12v14l-6-3-6 3zM7 7h6M7 10h4" },
+  { href: "/settings", label: "More", icon: "M3 6h14M3 10h14M3 14h14" },
 ] as const;
+const DESKTOP_EXTRA = [{ href: "/import", label: "Import" }] as const;
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -24,7 +25,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <header className="flex items-center gap-5 py-4" style={{ borderBottom: "1px solid var(--line)" }}>
         <Link href="/dashboard" className="text-base font-semibold tracking-tight">LogR</Link>
         <nav className="hidden gap-4 text-sm sm:flex" style={{ color: "var(--ink2)" }}>
-          {NAV.map((n) => (
+          {[...NAV, ...DESKTOP_EXTRA].map((n) => (
             <Link key={n.href} href={n.href} className="hover:underline">{n.label}</Link>
           ))}
         </nav>
