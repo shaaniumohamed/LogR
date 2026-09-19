@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { loadAnnotation } from "@/lib/actions";
-import { loadTrades } from "@/lib/queries";
+import { loadTradeWithLegs, loadTrades } from "@/lib/queries";
+import { TradeChart } from "@/components/trade-chart";
 import { Card, Eyebrow, Note, Stat, StatGrid, money, pct } from "@/components/ui";
 import { Info } from "@/components/info";
 import { AnnotateForm } from "./annotate-form";
@@ -20,6 +21,7 @@ export default async function TradeDetail({ params, searchParams }: {
   if (!t) notFound();
 
   const existing = (await loadAnnotation(account.id, id)) ?? null;
+  const withLegs = await loadTradeWithLegs(account.id, id);
 
   // Proposed from the zone's own geometry: just beyond the far edge of where the
   // entries filled. The trader confirms or corrects it — a proposal they only
@@ -85,6 +87,28 @@ export default async function TradeDetail({ params, searchParams }: {
           was dead.
         </Info>
       </Card>
+
+      {withLegs && withLegs.legs.length > 0 && (
+        <Card>
+          <Eyebrow>How it played out</Eyebrow>
+          <Note>
+            Every entry and exit, plotted against price and time.
+          </Note>
+          <div className="mt-3">
+            <TradeChart legs={withLegs.legs} zoneLow={t.zoneLow} zoneHigh={t.zoneHigh}
+                        invalidation={existing?.invalidation ?? null}
+                        direction={t.direction} timeZone={timeZone} />
+          </div>
+          <Info title="Why there are no candles">
+            Your broker export contains your fills, not the market's price history — so this
+            shows exactly where you entered and exited, but not what price did in between.
+            Adding real candles needs a market-data feed, which is the next step.
+            <br /><br />
+            Set the invalidation below and it appears here as a line, so you can see at a
+            glance whether each exit respected it.
+          </Info>
+        </Card>
+      )}
 
       <Card>
         <Eyebrow>Annotate this trade</Eyebrow>

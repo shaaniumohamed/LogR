@@ -112,3 +112,16 @@ export const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday",
 export function weekdayIn(date: Date, timeZone: string): string {
   return new Intl.DateTimeFormat("en-GB", { weekday: "long", timeZone }).format(date);
 }
+
+/** ISO week key (YYYY-Www) in the trader's own zone, Monday-first. */
+export function weekKey(date: Date, timeZone: string): string {
+  const day = localDayKey(date, timeZone);
+  const d = new Date(`${day}T12:00:00Z`);
+  const dow = (d.getUTCDay() + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - dow);
+  return d.toISOString().slice(0, 10);
+}
+
+export function monthKey(date: Date, timeZone: string): string {
+  return localDayKey(date, timeZone).slice(0, 7);
+}

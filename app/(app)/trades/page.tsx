@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { computeStats, hourIn } from "@/lib/core/metrics";
 import { sessionOf, weekdayIn } from "@/lib/core/analysis";
+import { localDayKey } from "@/lib/core/metrics";
 import { loadTrades, resolvePeriod } from "@/lib/queries";
 import { PeriodTabs } from "@/components/period-tabs";
 import { Card, Empty, Stat, StatGrid, count, money, pct } from "@/components/ui";
@@ -41,7 +42,7 @@ const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"] as con
 const SESSIONS = ["Asia", "London", "New York", "Late"] as const;
 
 export default async function Trades({ searchParams }: {
-  searchParams: Promise<{ period?: string; filter?: string; page?: string; day?: string; session?: string }>;
+  searchParams: Promise<{ period?: string; filter?: string; page?: string; day?: string; session?: string; date?: string }>;
 }) {
   const sp = await searchParams;
   const period = resolvePeriod(sp.period);
@@ -49,7 +50,7 @@ export default async function Trades({ searchParams }: {
   const page = Math.max(1, Number(sp.page ?? 1) || 1);
   const PER = 100;
 
-  const { trades, timeZone, isEmpty } = await loadTrades(period);
+  const { all, trades, timeZone, isEmpty } = await loadTrades(period);
   if (isEmpty) {
     return <Empty title="No trades yet" body="Import a broker CSV and every trade shows up here." />;
   }
@@ -57,12 +58,17 @@ export default async function Trades({ searchParams }: {
   const day = WEEKDAYS.includes(sp.day as typeof WEEKDAYS[number]) ? sp.day! : null;
   const sess = SESSIONS.includes(sp.session as typeof SESSIONS[number]) ? sp.session! : null;
 
-  let filtered = applyFilter(trades, filter);
+  const onDate = /^\d{4}-\d{2}-\d{2}$/.test(sp.date ?? "") ? sp.date! : null;
+  // A specific date overrides the period window, or a calendar tap into an older
+  // month would silently return nothing.
+  const pool = onDate ? all.filter((t) => localDayKey(t.closedAt, timeZone) === onDate) : trades;
+  let filtered = applyFilter(pool, filter);
   if (day) filtered = filtered.filter((t) => weekdayIn(t.openedAt, timeZone) === day);
   if (sess) filtered = filtered.filter((t) => sessionOf(hourIn(t.openedAt, timeZone)) === sess);
   const qs = (o: Record<string, string | null>) => {
     const p = new URLSearchParams({ period, filter });
     if (day) p.set("day", day);
+    if (onDate) p.set("date", onDate);
     if (sess) p.set("session", sess);
     for (const [k, v] of Object.entries(o)) v === null ? p.delete(k) : p.set(k, v);
     return `/trades?${p.toString()}`;
@@ -76,7 +82,17 @@ export default async function Trades({ searchParams }: {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {onDate && (
+        <div className="flex items-center justify-between gap-3 rounded-xl px-4 py-3"
+             style={{ background: "var(--s3)", border: "1px solid var(--line)" }}>
+          <span className="text-[13px] font-semibold">
+            {new Date(`${onDate}T12:00:00Z`).toLocaleDateString("en-GB",
+              { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })}
+          </span>
+          <Link href="/trades" className="text-[12.5px]" style={{ color: "var(--c1)" }}>Clear</Link>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center justify-between gap-3" style={{ display: onDate ? "none" : undefined }}>
         <PeriodTabs base="/trades" active={period} />
         <span className="text-[11px]" style={{ color: "var(--ink3)" }}>times in your local time</span>
       </div>

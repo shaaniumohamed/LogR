@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { positions, users, zoneTrades } from "@/lib/db/schema";
 import { getOrCreateAccount } from "@/lib/account";
+import { clusterPositions } from "@/lib/core/cluster";
 import type { ZoneTrade } from "@/lib/core/types";
 
 export const PERIODS = [
@@ -103,4 +104,32 @@ export function recentSlice(all: ZoneTrade[], days = 30): ZoneTrade[] {
   if (!all.length) return [];
   const cutoff = all[0].closedAt.getTime() - days * 86400000;
   return all.filter((t) => t.closedAt.getTime() >= cutoff);
+}
+
+/**
+ * One zone trade with its individual fills.
+ *
+ * Legs are re-derived rather than stored: the zone trade table holds the
+ * aggregate, and clustering from raw positions is cheap and guarantees the legs
+ * shown are exactly the ones the aggregate was built from.
+ */
+export async function loadTradeWithLegs(accountId: string, identityHash: string) {
+  const rows = await db.select().from(positions).where(eq(positions.accountId, accountId));
+  const domain = rows.map((p) => ({
+    ticket: p.ticket,
+    openedAt: p.openedAt,
+    closedAt: p.closedAt,
+    direction: p.direction as "long" | "short",
+    symbol: p.symbol,
+    lots: p.lots,
+    openPrice: p.openPrice,
+    closePrice: p.closePrice,
+    stopLoss: p.stopLoss,
+    takeProfit: p.takeProfit,
+    commission: p.commission,
+    swap: p.swap,
+    profit: p.profit,
+    closeReason: p.closeReason as "user" | "tp" | "sl" | "so" | "unknown",
+  }));
+  return clusterPositions(domain).find((z) => z.id === identityHash) ?? null;
 }
