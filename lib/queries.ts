@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { zoneTrades } from "@/lib/db/schema";
+import { users, zoneTrades } from "@/lib/db/schema";
 import { getOrCreateAccount } from "@/lib/account";
 import type { ZoneTrade } from "@/lib/core/types";
 
@@ -28,6 +28,8 @@ export async function loadTrades(period: PeriodKey = "all") {
   const session = await auth();
   const userId = session!.user!.id!;
   const account = await getOrCreateAccount(userId);
+  const me = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  const timeZone = me?.timeZone && me.timeZone !== "UTC" ? me.timeZone : "UTC";
 
   const rows = await db.select().from(zoneTrades)
     .where(eq(zoneTrades.accountId, account.id))
@@ -73,7 +75,7 @@ export async function loadTrades(period: PeriodKey = "all") {
     all,
     /** Filtered to the selected period. */
     trades,
-    timeZone: "Asia/Kuala_Lumpur",
+    timeZone,
     isEmpty: all.length === 0,
   };
 }

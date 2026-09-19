@@ -3,7 +3,7 @@ import { computeStats, costPicture } from "@/lib/core/metrics";
 import { byHourLocal, byLocalDay } from "@/lib/core/analysis";
 import { loadTrades, recentSlice, resolvePeriod } from "@/lib/queries";
 import { PeriodTabs } from "@/components/period-tabs";
-import { BarChart, CurveChart, VersusBar } from "@/components/charts";
+import { BarChart, CalendarHeatmap, CurveChart, VersusBar } from "@/components/charts";
 import { Card, Empty, Estimated, Eyebrow, Note, Stat, StatGrid, Verdict, count, money, money0, pct } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +20,7 @@ function verdict(edge: number | null, net: number, n: number) {
 export default async function Dashboard({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
   const period = resolvePeriod((await searchParams).period);
   const { all, trades, timeZone, isEmpty } = await loadTrades(period);
+  const zoneUnset = timeZone === "UTC";
 
   if (isEmpty) {
     return (
@@ -66,6 +67,23 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           {count(trades.length)} · {days.length} trading {days.length === 1 ? "day" : "days"}
         </span>
       </div>
+
+      {zoneUnset && (
+        <Link href="/settings" className="block">
+          <Card className="!border-current" >
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <div className="text-[13.5px] font-semibold">Set your time zone</div>
+                <div className="mt-0.5 text-[12.5px]" style={{ color: "var(--ink2)" }}>
+                  Times are showing in UTC. Every time-of-day finding below is only useful
+                  once it reads in your own clock.
+                </div>
+              </div>
+              <span style={{ color: "var(--ink3)" }}>›</span>
+            </div>
+          </Card>
+        </Link>
+      )}
 
       <Card>
         <Eyebrow>How it is going</Eyebrow>
@@ -150,7 +168,17 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           Running total across {days.length} trading {days.length === 1 ? "day" : "days"}.
           The shaded area shows how far you fell below your best point.
         </Verdict>
-        <CurveChart points={curve} format={(v) => money0(v)} aria="Running profit with drawdown shaded" />
+        <CurveChart points={curve} format={(v) => money0(v)} aria="Running profit over time with drawdown shaded" />
+      </Card>
+
+      <Card>
+        <Eyebrow>Day by day</Eyebrow>
+        <Verdict>
+          {profitableDays} of your {days.length} trading {days.length === 1 ? "day" : "days"} finished
+          up{days.length ? ` (${pct(profitableDays / days.length, 0)})` : ""}. Darker squares are
+          bigger days, in either direction.
+        </Verdict>
+        <CalendarHeatmap days={days.map((d) => ({ date: d.date, net: d.net, trades: d.trades }))} timeZone={timeZone} />
       </Card>
 
       <Card>
@@ -166,7 +194,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
             { label: "Spread took", value: -(cost.costLo + cost.costHi) / 2, meta: `over ${s.totalLots.toFixed(1)} lots` },
             { label: "You kept", value: s.net, meta: "after costs", flag: true },
           ]}
-          format={(v) => money0(v)} labelWidth={112} aria="Earnings before costs, spread cost, and what was kept"
+          format={(v) => money0(v)}
         />
         <Note>
           <b>Why this is not on your statement:</b> the spread is baked into the price you were
@@ -192,7 +220,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               value: h.net,
               meta: `${count(h.trades)} · lost on ${h.losingDays} of ${h.days} days`,
             }))}
-            format={(v) => money0(v)} labelWidth={74} aria="Hours of day with repeated losses"
+            format={(v) => money0(v)}
           />
           <Note>
             Dropping just your worst hour would have changed this period by{" "}

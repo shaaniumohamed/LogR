@@ -12,6 +12,7 @@ const NAV = [
   { href: "/trades", label: "Trades", icon: "M4 4h12v12H4zM7 8h6M7 11h4" },
   { href: "/analytics", label: "Patterns", icon: "M4 16V9M8 16V5M12 16v-5M16 16V7" },
   { href: "/import", label: "Import", icon: "M10 3v10M6 9l4 4 4-4M4 17h12" },
+  { href: "/settings", label: "Settings", icon: "M3 6h14M3 10h14M3 14h14" },
 ] as const;
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -42,7 +43,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
              backdropFilter: "blur(12px)",
              paddingBottom: "env(safe-area-inset-bottom, 0px)",
            }}>
-        <div className="mx-auto grid max-w-3xl grid-cols-4">
+        <div className="mx-auto grid max-w-3xl grid-cols-5">
           {NAV.map((n) => (
             <Link key={n.href} href={n.href}
                   className="flex flex-col items-center gap-1 py-2.5 text-[10px] font-medium"

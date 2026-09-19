@@ -29,7 +29,7 @@ function Section({ title, verdict, rows, note }: {
     <Card>
       <Eyebrow>{title}</Eyebrow>
       <Verdict>{verdict}</Verdict>
-      <BarChart rows={rows} format={(v) => money0(v)} labelWidth={112} aria={title} />
+      <BarChart rows={rows} format={(v) => money0(v)} />
       {note && <Note>{note}</Note>}
     </Card>
   );
@@ -108,7 +108,7 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
               ? `Trades that ran to a target averaged ${money(tp.stats.expectancy)} each. Trades you closed by hand averaged ${money(manual.stats.expectancy)}.`
               : `This splits your trades by what actually closed them.`}
           </Verdict>
-          <BarChart rows={endedRows} format={(v) => money0(v)} labelWidth={120} aria="Result by how the trade ended" />
+          <BarChart rows={endedRows} format={(v) => money0(v)} />
           <Note>
             <b>Read this carefully.</b> A target only fills if price reached it, so those
             trades are selected for having gone well — the comparison is not fair on its
