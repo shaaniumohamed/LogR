@@ -56,3 +56,28 @@ body {
   font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em;
   text-transform: uppercase; color: var(--ink3);
 }
+
+/* ---------------------------------------------------------------- touch */
+
+/*
+ * iOS zooms the whole page in when a text field smaller than 16px takes focus,
+ * and then leaves it zoomed. Every input here is 13px for density, so on a
+ * phone they are bumped to the size that stops it. The fields get a little
+ * larger, which for a thumb is not a cost.
+ */
+@media (max-width: 640px) {
+  input, select, textarea { font-size: 16px; }
+}
+
+html { -webkit-text-size-adjust: 100%; }
+
+/*
+ * The default grey flash on tap is the wrong shape on a rounded card and lags
+ * behind the finger. Replaced with an immediate dim, which reads as a press.
+ */
+a, button, summary, [role="button"] { -webkit-tap-highlight-color: transparent; }
+a:active, button:active, summary:active { opacity: 0.66; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

@@ -63,6 +63,28 @@ export default async function Settings() {
       </Card>
 
       <Card>
+        <Eyebrow>Put it on your home screen</Eyebrow>
+        <Verdict>
+          Added to the home screen this opens without a browser bar — a third of the screen
+          back, and the tabs sit where an app&rsquo;s would.
+        </Verdict>
+        <div className="mt-3 space-y-2 text-[13px] leading-relaxed" style={{ color: "var(--ink2)" }}>
+          <p>
+            <b>iPhone:</b> open this page in Safari, tap the share button, then{" "}
+            <b>Add to Home Screen</b>. It has to be Safari — other browsers on iOS cannot
+            install it.
+          </p>
+          <p>
+            <b>Android:</b> the browser offers <b>Install app</b> in its menu.
+          </p>
+          <p style={{ color: "var(--ink3)" }}>
+            It is the same app either way, signed in the same way. Nothing is stored on the
+            phone beyond what a browser already keeps.
+          </p>
+        </div>
+      </Card>
+
+      <Card>
         <Eyebrow>Speed</Eyebrow>
         <Verdict>
           The database is <b className={speed.tone === "pos" ? "pos" : speed.tone === "neg" ? "neg" : undefined}>
