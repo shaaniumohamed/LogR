@@ -246,7 +246,11 @@ export function CandleImport({ defaultSymbol }: { defaultSymbol: string }) {
 function AlignmentCard({ report, onShift }: { report: AlignmentReport; onShift: () => void }) {
   const { checked, score, bestShiftMinutes, bestScore } = report;
 
-  if (checked === 0) {
+  // `evidence` rather than `checked`: a file whose times are hours out reaches
+  // no fills where it currently sits, but it is emphatically checkable — the
+  // sweep found the shift. Keying the "nothing to compare" message on `checked`
+  // would hide the one message that matters.
+  if (report.evidence === 0) {
     return (
       <div className="card p-5">
         <div className="eyebrow">Not checked</div>

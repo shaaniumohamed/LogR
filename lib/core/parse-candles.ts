@@ -221,7 +221,7 @@ export interface Fill {
 }
 
 export interface AlignmentReport {
-  /** Fills that fall inside the candle file's date range and could be checked. */
+  /** Fills the candles actually reach, and so could be checked at all. */
   checked: number;
   /** Of those, how many landed inside the high–low of their own candle. */
   inside: number;
@@ -238,6 +238,11 @@ export interface AlignmentReport {
   dstLikely: boolean;
   /** What the two shifts together would score, when dstLikely. */
   combinedScore: number | null;
+  /**
+   * The most fills any shift could reach. Zero means the candles and the
+   * trades simply never overlap, which is not a disagreement about anything.
+   */
+  evidence: number;
 }
 
 /**
@@ -272,7 +277,7 @@ export function checkAlignment(
 ): AlignmentReport {
   const empty: AlignmentReport = {
     checked: 0, inside: 0, score: null, bestShiftMinutes: 0, bestScore: null,
-    dstLikely: false, combinedScore: null,
+    dstLikely: false, combinedScore: null, evidence: 0,
   };
   if (!candles.length || !fills.length) return empty;
 
@@ -292,25 +297,61 @@ export function checkAlignment(
   const relevant = fills.filter((f) => f.time >= first && f.time <= last);
   if (!relevant.length) return empty;
 
-  /** Which fills land inside their own candle once the file is shifted by this much. */
+  /**
+   * Score a shift against the fills it can actually reach, not against every
+   * fill in sight.
+   *
+   * This distinction is the whole correctness of the check. A fill that happened
+   * on a day the candles do not cover is not evidence of disagreement — there is
+   * nothing there to disagree with. Counting it as a failure puts a ceiling on
+   * the score set by how much history was fetched rather than by whether the
+   * prices match: two days of flawless candles weighed against four days of
+   * fills cannot score above about 63%, and so gets reported as the wrong
+   * instrument. `reach` is what makes each shift's score mean "of the fills this
+   * shift can speak to, how many agree".
+   */
   const matchesAt = (shiftMinutes: number) => {
     const hit = new Uint8Array(relevant.length);
-    let n = 0;
+    const seen = new Uint8Array(relevant.length);
+    let n = 0, reach = 0;
     for (let i = 0; i < relevant.length; i++) {
       const f = relevant[i];
       const c = byTime.get(Math.floor((f.time - shiftMinutes * 60) / 60) * 60);
-      if (c && f.price >= c.low - slack && f.price <= c.high + slack) { hit[i] = 1; n++; }
+      if (!c) continue;
+      seen[i] = 1; reach++;
+      if (f.price >= c.low - slack && f.price <= c.high + slack) { hit[i] = 1; n++; }
     }
-    return { hit, n };
+    return { hit, seen, n, reach };
   };
 
   const atZero = matchesAt(0);
-  let bestShift = 0, best = atZero;
+  const sweep = [atZero];
+  const shifts = [0];
   for (let m = -maxShiftHours * 60; m <= maxShiftHours * 60; m += stepMinutes) {
     if (m === 0) continue;
-    const r = matchesAt(m);
-    if (r.n > best.n) { best = r; bestShift = m; }
+    sweep.push(matchesAt(m));
+    shifts.push(m);
   }
+
+  const evidence = Math.max(...sweep.map((r) => r.reach));
+  if (evidence === 0) return { ...empty, checked: 0 };
+
+  /*
+   * A shift that reaches four fills and matches all four is not better evidence
+   * than one that reaches four hundred and matches 95% of them, so a shift has
+   * to reach a decent share of what the best-placed shift reaches before its
+   * rate is allowed to win.
+   */
+  const floor = Math.max(10, evidence * 0.2);
+  const rate = (r: { n: number; reach: number }) => (r.reach > 0 ? r.n / r.reach : 0);
+
+  let bestIdx = 0;
+  for (let i = 0; i < sweep.length; i++) {
+    if (sweep[i].reach < floor) continue;
+    if (sweep[bestIdx].reach < floor || rate(sweep[i]) > rate(sweep[bestIdx])) bestIdx = i;
+  }
+  const best = sweep[bestIdx];
+  const bestShift = shifts[bestIdx];
 
   /*
    * A file written in a zone that observes daylight saving needs one shift for
@@ -323,21 +364,25 @@ export function checkAlignment(
   let combined: number | null = null;
   for (const other of [bestShift + 60, bestShift - 60]) {
     const r = matchesAt(other);
-    let union = 0;
-    for (let i = 0; i < relevant.length; i++) if (best.hit[i] || r.hit[i]) union++;
-    const s = union / relevant.length;
+    let union = 0, unionReach = 0;
+    for (let i = 0; i < relevant.length; i++) {
+      if (best.seen[i] || r.seen[i]) unionReach++;
+      if (best.hit[i] || r.hit[i]) union++;
+    }
+    const s = unionReach > 0 ? union / unionReach : 0;
     if (combined === null || s > combined) combined = s;
   }
-  const bestScore = best.n / relevant.length;
+  const bestScore = rate(best);
   const dstLikely = bestScore < 0.9 && combined !== null && combined >= 0.9;
 
   return {
-    checked: relevant.length,
+    checked: atZero.reach,
     inside: atZero.n,
-    score: atZero.n / relevant.length,
+    score: atZero.reach > 0 ? rate(atZero) : null,
     bestShiftMinutes: bestShift,
     bestScore,
     dstLikely,
     combinedScore: combined,
+    evidence,
   };
 }

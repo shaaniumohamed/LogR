@@ -89,12 +89,16 @@ export async function POST(req: Request) {
   );
 
   if (alignment.checked > 0 && (alignment.score ?? 0) < 0.9) {
+    // Say which of the three it is. They need different actions, and guessing
+    // the wrong one sends the trader to fix something that was never broken.
+    const why = alignment.dstLikely
+      ? "Part of the period needs one shift and the rest another, which is a clock change rather than bad data."
+      : alignment.bestShiftMinutes !== 0 && (alignment.bestScore ?? 0) >= 0.9
+        ? `They would match shifted by ${alignment.bestShiftMinutes / 60} hours, so the service answered in the wrong time zone.`
+        : "No shift fixes it, so this is most likely a different instrument under a similar ticker.";
     return NextResponse.json({
       error: "The candles that came back do not match your fills, so they were not saved.",
-      detail: `${Math.round((alignment.score ?? 0) * 100)}% of your ${alignment.checked} fills in that period landed inside their own candle.`
-        + (alignment.bestShiftMinutes !== 0 && (alignment.bestScore ?? 0) >= 0.9
-          ? ` They would match shifted by ${alignment.bestShiftMinutes / 60} hours, which means the service answered in the wrong time zone.`
-          : " This is most likely a different instrument under a similar ticker."),
+      detail: `${Math.round((alignment.score ?? 0) * 100)}% of the ${alignment.checked} fills these candles cover landed inside their own candle. ${why}`,
       alignment,
     }, { status: 409 });
   }

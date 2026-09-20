@@ -138,9 +138,28 @@ describe("checkAlignment", () => {
     // Fills happened five hours after the times the file claims: the classic
     // US Eastern file read as UTC.
     const r = checkAlignment(candles, fillsAt(5 * 3600));
-    expect(r.score).toBe(0);
+    // As written, the candles reach none of these fills at all, so there is no
+    // rate to report — "nothing to compare" is a different answer from "they
+    // disagree", and reporting the second would be a claim we cannot support.
+    expect(r.checked).toBe(0);
+    expect(r.score).toBeNull();
+    // The shift is still found, and it is unambiguous.
     expect(r.bestShiftMinutes).toBe(300);
     expect(r.bestScore).toBe(1);
+    expect(r.evidence).toBe(240);
+  });
+
+  it("does not let the size of the fetched window cap the score", () => {
+    // The defect this guards: candles covering part of the period the fills
+    // span, every single one of them correct. Scored against all the fills in
+    // sight it cannot exceed the fraction of time fetched — two days of
+    // flawless candles against four days of fills tops out near 63% and gets
+    // reported as the wrong instrument.
+    const half = candles.slice(0, 120);
+    const r = checkAlignment(half, fillsAt(0));
+    expect(r.score).toBe(1);
+    expect(r.checked).toBe(120);
+    expect(r.bestShiftMinutes).toBe(0);
   });
 
   it("tolerates the spread, because fills carry it and bid candles do not", () => {
