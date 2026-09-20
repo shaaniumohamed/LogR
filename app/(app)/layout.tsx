@@ -5,6 +5,7 @@ import { auth, signOut } from "@/auth";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { ZoneSync } from "@/components/zone-sync";
+import { TabBar, TopNav } from "@/components/tab-bar";
 import { schemaIsCurrent } from "@/lib/db/schema-check";
 
 /**
@@ -14,6 +15,7 @@ import { schemaIsCurrent } from "@/lib/db/schema-check";
  */
 const NAV = [
   { href: "/dashboard", label: "Overview", icon: "M3 9l7-6 7 6v9a1 1 0 0 1-1 1h-4v-5H8v5H4a1 1 0 0 1-1-1z" },
+  { href: "/calendar", label: "Calendar", icon: "M3 5h14v12H3zM3 8h14M7 3v3M13 3v3" },
   { href: "/trades", label: "Trades", icon: "M4 4h12v12H4zM7 8h6M7 11h4" },
   { href: "/analytics", label: "Patterns", icon: "M4 16V9M8 16V5M12 16v-5M16 16V7" },
   { href: "/review", label: "Review", icon: "M4 3h12v14l-6-3-6 3zM7 7h6M7 10h4" },
@@ -34,11 +36,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-4">
       <header className="flex items-center gap-5 py-4" style={{ borderBottom: "1px solid var(--line)" }}>
         <Link href="/dashboard" className="text-base font-semibold tracking-tight">LogR</Link>
-        <nav className="hidden gap-4 text-sm sm:flex" style={{ color: "var(--ink2)" }}>
-          {[...NAV, ...DESKTOP_EXTRA].map((n) => (
-            <Link key={n.href} href={n.href} className="hover:underline">{n.label}</Link>
-          ))}
-        </nav>
+        <TopNav tabs={[...NAV, ...DESKTOP_EXTRA]} />
         <form className="ml-auto" action={async () => { "use server"; await signOut({ redirectTo: "/signin" }); }}>
           <button type="submit" className="text-xs" style={{ color: "var(--ink3)" }}>Sign out</button>
         </form>
@@ -64,28 +62,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         {children}
       </main>
 
-      <nav aria-label="Sections"
-           className="fixed inset-x-0 bottom-0 z-30 border-t sm:hidden"
-           style={{
-             borderColor: "var(--line)",
-             background: "color-mix(in srgb, var(--plane) 92%, transparent)",
-             backdropFilter: "blur(12px)",
-             paddingBottom: "env(safe-area-inset-bottom, 0px)",
-           }}>
-        <div className="mx-auto grid max-w-3xl grid-cols-5">
-          {NAV.map((n) => (
-            <Link key={n.href} href={n.href}
-                  className="flex flex-col items-center gap-1 py-2.5 text-[10px] font-medium"
-                  style={{ color: "var(--ink2)" }}>
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.5}
-                   strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5">
-                <path d={n.icon} />
-              </svg>
-              {n.label}
-            </Link>
-          ))}
-        </div>
-      </nav>
+      <TabBar tabs={NAV} />
     </div>
   );
 }

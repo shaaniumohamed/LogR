@@ -38,3 +38,44 @@ export function fetchWindow(openedAt: Date, closedAt: Date) {
   if (end.getTime() > maxEnd) end = new Date(maxEnd);
   return { from: start, to: end };
 }
+
+export interface FillCoverage {
+  /** Fills that have a candle at, or within a minute or two of, their own minute. */
+  covered: number;
+  total: number;
+  /** True when every fill can be seen on the chart. */
+  complete: boolean;
+}
+
+/**
+ * How much of this trade the candles we hold can actually show.
+ *
+ * Asked because "there are some bars" is not the same as "the chart is usable".
+ * A fetch that half-filled a day, a provider that publishes nothing through a
+ * thin minute, a trade that started before the window we happened to pull — all
+ * three leave a chart that draws perfectly well and simply does not contain the
+ * entry. Counting fills rather than minutes makes the answer something a trader
+ * can act on: three of your eleven fills are not on this chart.
+ *
+ * `slackMinutes` exists because a bar is missing in two different senses. A gap
+ * of one minute in a feed is normal and costs nothing — the fill still sits in
+ * the picture. A gap of hours is the day never having been fetched.
+ */
+export function coversFills(
+  bars: { time: number }[],
+  fills: { time: number }[],
+  slackMinutes = 2,
+): FillCoverage {
+  if (!fills.length) return { covered: 0, total: 0, complete: true };
+  if (!bars.length) return { covered: 0, total: fills.length, complete: false };
+
+  const minutes = new Set(bars.map((b) => Math.floor(b.time / 60)));
+  let covered = 0;
+  for (const f of fills) {
+    const m = Math.floor(f.time / 60);
+    for (let d = -slackMinutes; d <= slackMinutes; d++) {
+      if (minutes.has(m + d)) { covered++; break; }
+    }
+  }
+  return { covered, total: fills.length, complete: covered === fills.length };
+}

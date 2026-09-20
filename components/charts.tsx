@@ -199,3 +199,58 @@ export function CalendarHeatmap({ days, timeZone }: {
     </div>
   );
 }
+
+/**
+ * One day's running total, in the order the exits happened.
+ *
+ * Separate from CurveChart because the question is different. Across months you
+ * want the trend and the drawdown shading; inside a single day you want to know
+ * where the high point was and how much of it survived to the close — so the
+ * peak is marked, the zero line is drawn properly, and the axis is clock time
+ * rather than an index.
+ */
+export function DayCurve({ points, format, aria, height = 132 }: {
+  points: { at: string; value: number }[];
+  format: (v: number) => string;
+  aria: string;
+  height?: number;
+}) {
+  if (points.length < 2) return null;
+  const W = 340, H = height, T = 10, B = 10;
+  const ph = H - T - B;
+  const values = points.map((p) => p.value);
+  const min = Math.min(0, ...values), max = Math.max(0, ...values);
+  const X = (i: number) => (i / (points.length - 1)) * W;
+  const Y = (v: number) => T + (1 - (v - min) / (max - min || 1)) * ph;
+
+  let peakAt = 0;
+  for (let i = 1; i < values.length; i++) if (values[i] > values[peakAt]) peakAt = i;
+  const last = values[values.length - 1];
+  const peak = values[peakAt];
+  const zeroY = Y(0);
+
+  return (
+    <div className="mt-3">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={aria}
+           preserveAspectRatio="none" className="block w-full" style={{ height }}>
+        {/* The zero line is the one that matters, so it is the only solid rule. */}
+        <line x1={0} y1={zeroY} x2={W} y2={zeroY} stroke="var(--ink3)" strokeWidth={1}
+              opacity={0.5} vectorEffect="non-scaling-stroke" />
+        <polyline points={points.map((p, i) => `${X(i).toFixed(1)},${Y(p.value).toFixed(1)}`).join(" ")}
+                  fill="none" stroke={last >= 0 ? "var(--profit)" : "var(--loss)"} strokeWidth={2}
+                  strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+        {peak > 0 && peak > last && (
+          <>
+            <line x1={0} y1={Y(peak)} x2={W} y2={Y(peak)} stroke="var(--ink3)" strokeWidth={1}
+                  strokeDasharray="4 4" opacity={0.6} vectorEffect="non-scaling-stroke" />
+            <circle cx={X(peakAt)} cy={Y(peak)} r={3} fill="var(--profit)" />
+          </>
+        )}
+      </svg>
+      <div className="mt-1 flex justify-between text-[11px]" style={{ color: "var(--ink3)" }}>
+        <span className="num">{points[0].at}</span>
+        <span className="num">{points[points.length - 1].at}</span>
+      </div>
+    </div>
+  );
+}

@@ -4,6 +4,9 @@ import { loadAnnotation } from "@/lib/actions";
 import { loadTradeWithLegs, loadTrades } from "@/lib/queries";
 import { TradeChart } from "@/components/trade-chart";
 import { closureGap, contextWindow, fetchWindow, loadBars } from "@/lib/candles";
+import { coversFills } from "@/lib/core/window";
+import { localDayKey } from "@/lib/core/metrics";
+import { dayLabel } from "@/lib/core/calendar";
 import { heldOverWeekend } from "@/lib/core/analysis";
 import { ChartPanel } from "./chart-panel";
 import { GetCandles } from "./get-candles";
@@ -45,6 +48,17 @@ export default async function TradeDetail({ params, searchParams }: {
     { kind: "out" as const, time: Math.floor(l.closedAt.getTime() / 1000), price: l.closePrice, lots: l.lots, profit: l.profit },
   ]);
 
+  /*
+   * Whether the candles we hold actually cover THIS trade, rather than merely
+   * existing. Holding some bars for the window is not the same as being able to
+   * draw the entry: a half-filled day, a fetch that stopped short, or a window
+   * that begins after the first fill all leave a chart that renders perfectly
+   * and is missing the part being reviewed. Measured against the fills, so the
+   * answer is a sentence the trader can act on rather than a blank rectangle.
+   */
+  const coverage = coversFills(bars, fills);
+  const dayKey = localDayKey(t.closedAt, timeZone);
+
   // Proposed from the zone's own geometry: just beyond the far edge of where the
   // entries filled. The trader confirms or corrects it — a proposal they only
   // have to accept is far likelier to get answered than an empty box.
@@ -64,7 +78,12 @@ export default async function TradeDetail({ params, searchParams }: {
 
   return (
     <div className="space-y-4">
-      <Link href="/trades" className="inline-block text-[13px]" style={{ color: "var(--ink2)" }}>‹ All trades</Link>
+      <div className="flex items-center justify-between gap-3 text-[13px]">
+        <Link href={`/day/${dayKey}`} style={{ color: "var(--ink2)" }}>
+          ‹ {dayLabel(dayKey, { weekday: "short", day: "numeric", month: "short" })}
+        </Link>
+        <Link href="/trades" style={{ color: "var(--ink3)" }}>All trades</Link>
+      </div>
 
       <Card>
         <div className="flex items-start justify-between gap-3">
@@ -145,12 +164,25 @@ export default async function TradeDetail({ params, searchParams }: {
       {withLegs && withLegs.legs.length > 0 && (
         <Card>
           <Eyebrow>How it played out</Eyebrow>
-          {bars.length > 0 ? (
+          {coverage.covered > 0 ? (
             <>
               <Note>
                 Real price, with every entry and exit where it actually happened. Mark the
                 zones and levels you were trading — they save with the trade.
               </Note>
+              {!coverage.complete && (
+                <div className="mt-3 rounded-lg p-3 text-[12.5px] leading-relaxed"
+                     style={{ background: "var(--s3)", borderLeft: "3px solid var(--warn)", color: "var(--ink2)" }}>
+                  <b>
+                    {coverage.total - coverage.covered} of your {coverage.total} fills have no candle
+                    behind them.
+                  </b>{" "}
+                  The chart below is real as far as it goes, but part of this trade is not on it.
+                  Fetching this day fills the gap.
+                  <GetCandles symbol={t.symbol} hasKey={!!process.env.TWELVEDATA_API_KEY}
+                              from={toFetch.from.toISOString()} to={toFetch.to.toISOString()} />
+                </div>
+              )}
               <div className="mt-3">
                 <ChartPanel
                   identityHash={t.id}

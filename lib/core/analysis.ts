@@ -150,3 +150,56 @@ export function heldOverWeekend(openedAt: Date, closedAt: Date): boolean {
   const saturday = dayStart + untilSaturday * DAY_MS;
   return openedAt.getTime() < saturday + DAY_MS && closedAt.getTime() > saturday;
 }
+
+export interface DayShape {
+  /** Cumulative profit at each exit, in the order the exits happened. */
+  curve: number[];
+  /** The best the day ever was, and when. */
+  peak: number;
+  peakAt: Date | null;
+  worst: number;
+  worstAt: Date | null;
+  close: number;
+  /**
+   * The fall from the day's best point to where it finished. Always a fall, never
+   * a gain — on a day that was never green it is how much worse than its best the
+   * day ended, which is a real thing to see but is not profit handed back.
+   */
+  gaveBack: number;
+  /** True only when a genuine profit was handed back: the sentence-worthy case. */
+  gaveBackMost: boolean;
+}
+
+/**
+ * The shape of a single day, not just its total.
+ *
+ * A day that ends at +$40 having been +$300 is a completely different day from
+ * one that climbed steadily to +$40, and the daily total — the number every
+ * journal shows — cannot tell them apart. At a hundred orders a day the
+ * difference between those two is the whole of a trader's discipline: it is the
+ * record of what happened after the day was already won.
+ *
+ * Ordered by exit, because that is when money actually moved.
+ */
+export function dayShape(trades: ZoneTrade[]): DayShape {
+  const sorted = [...trades].sort((a, b) => a.closedAt.getTime() - b.closedAt.getTime());
+  const curve: number[] = [];
+  let running = 0, peak = 0, worst = 0;
+  let peakAt: Date | null = null, worstAt: Date | null = null;
+
+  for (const t of sorted) {
+    running = round2(running + t.netPnl);
+    curve.push(running);
+    if (peakAt === null || running > peak) { peak = running; peakAt = t.closedAt; }
+    if (worstAt === null || running < worst) { worst = running; worstAt = t.closedAt; }
+  }
+
+  const close = curve.length ? curve[curve.length - 1] : 0;
+  const gaveBack = round2(Math.max(0, peak - close));
+  return {
+    curve, peak, peakAt, worst, worstAt, close, gaveBack,
+    // Half of a peak worth having. A dollar handed back off two dollars is noise;
+    // handing back half of a real gain is the thing worth seeing.
+    gaveBackMost: peak > 0 && gaveBack > peak * 0.5 && gaveBack > 1,
+  };
+}

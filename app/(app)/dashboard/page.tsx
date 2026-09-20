@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { computeStats, costPicture } from "@/lib/core/metrics";
 import { byHourLocal, byLocalDay, monthKey, weekKey } from "@/lib/core/analysis";
+import { localDayKey } from "@/lib/core/metrics";
 import { loadTrades, recentSlice, resolvePeriod } from "@/lib/queries";
 import { PeriodTabs } from "@/components/period-tabs";
-import { MonthCalendar, PeriodTrend, monthLabel, monthsIn } from "@/components/month-calendar";
+import { MonthCalendar, PeriodTrend } from "@/components/month-calendar";
+import { monthLabel } from "@/lib/core/calendar";
 import { BarChart, CurveChart, VersusBar } from "@/components/charts";
 import { Info } from "@/components/info";
 import { Card, Empty, Estimated, Eyebrow, Note, Stat, StatGrid, Verdict, count, money, money0, pct } from "@/components/ui";
@@ -70,8 +72,15 @@ export default async function Dashboard({ searchParams }: {
   const hours = byHourLocal(trades, timeZone);
   const badHours = hours.filter((h) => h.consistent).sort((a, b) => a.net - b.net).slice(0, 3);
 
-  const months = monthsIn(allDays);
-  const month = sp.month && months.includes(sp.month) ? sp.month : months[0];
+  // The same bounds the Calendar tab uses, so stepping months behaves identically
+  // wherever the grid is shown: every month from the first trade to now, including
+  // the ones with nothing in them.
+  const today = localDayKey(new Date(), timeZone);
+  const firstMonth = allDays[0].date.slice(0, 7);
+  const lastTradedMonth = allDays[allDays.length - 1].date.slice(0, 7);
+  const lastMonth = lastTradedMonth > today.slice(0, 7) ? lastTradedMonth : today.slice(0, 7);
+  const asked = /^\d{4}-(0[1-9]|1[0-2])$/.test(sp.month ?? "") ? sp.month! : lastMonth;
+  const month = asked < firstMonth ? firstMonth : asked > lastMonth ? lastMonth : asked;
   const scale = Math.max(...allDays.map((d) => Math.abs(d.net)), 1);
 
   let running = 0;
@@ -157,8 +166,16 @@ export default async function Dashboard({ searchParams }: {
       )}
 
       <Card>
-        <Eyebrow>Calendar</Eyebrow>
-        <MonthCalendar days={allDays} month={month} months={months} base="/dashboard" scale={scale} />
+        <div className="flex items-baseline justify-between gap-3">
+          <Eyebrow>Calendar</Eyebrow>
+          <Link href={`/calendar?month=${month}`} className="text-[12px] font-semibold" style={{ color: "var(--c1)" }}>
+            Open calendar →
+          </Link>
+        </div>
+        <div className="mt-2">
+          <MonthCalendar days={allDays} month={month} first={firstMonth} last={lastMonth}
+                         base="/dashboard" scale={scale} today={today} />
+        </div>
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-2">
