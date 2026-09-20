@@ -48,6 +48,23 @@ const EXPLAIN: Record<string, { title: string; body: string }> = {
   },
 };
 
+/**
+ * The redirect URI this deployment will actually hand to Google.
+ *
+ * Shown because a mismatch is rejected by Google, on Google's own page — the
+ * app never gets the request back and so never gets to explain it. Printing the
+ * exact string here turns "register the redirect URI in the Google Cloud
+ * Console" into something you can copy, rather than something you reconstruct
+ * from memory and get subtly wrong.
+ */
+function callbackUrl(): string {
+  const base = process.env.AUTH_URL
+    ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : "http://localhost:3000");
+  return `${base.replace(/\/+$/, "")}/api/auth/callback/google`;
+}
+
 export default async function SignIn({ searchParams }: {
   searchParams: Promise<{ error?: string }>;
 }) {
@@ -99,6 +116,24 @@ export default async function SignIn({ searchParams }: {
             We never ask for a broker password. Import is a file you export yourself.
           </p>
         </div>
+
+        <details className="card p-5">
+          <summary className="cursor-pointer text-[13px] font-semibold">
+            Sign-in not working?
+          </summary>
+          <p className="mt-3 text-[12px] leading-relaxed" style={{ color: "var(--ink2)" }}>
+            If Google says <b>redirect_uri_mismatch</b>, this exact address has to be listed
+            under Authorised redirect URIs on your OAuth client in Google Cloud:
+          </p>
+          <code className="num mt-2 block break-all rounded-lg p-2.5 text-[11px]"
+                style={{ background: "var(--s3)" }}>
+            {callbackUrl()}
+          </code>
+          <p className="mt-2 text-[11px] leading-relaxed" style={{ color: "var(--ink3)" }}>
+            It must match character for character — no trailing slash, and https rather than
+            http anywhere but localhost.
+          </p>
+        </details>
 
         {explained && (
           <div className="card p-5" style={{ borderColor: "var(--loss)" }}>

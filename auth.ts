@@ -5,13 +5,32 @@ import { db } from "@/lib/db";
 import { accounts, sessions, users, verificationTokens } from "@/lib/db/schema";
 
 /**
+ * Pin the URL Auth.js builds its OAuth callback from.
+ *
+ * Left to itself on Vercel it derives that from VERCEL_URL, which is the
+ * PER-DEPLOYMENT hostname — log-pxq9tkol8-….vercel.app, a different one on
+ * every push. Google only accepts redirect URIs registered in advance and
+ * exactly, so a callback built from that hostname is rejected every single
+ * time, with redirect_uri_mismatch naming a URL that did not exist yesterday
+ * and will not exist tomorrow.
+ *
+ * VERCEL_PROJECT_PRODUCTION_URL is the stable production domain, which is the
+ * one worth registering. Using it when AUTH_URL has not been set means a fresh
+ * deployment signs in with no manual configuration at all; setting AUTH_URL
+ * still wins, which is what a custom domain needs.
+ */
+if (!process.env.AUTH_URL && process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+  process.env.AUTH_URL = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+}
+
+const allowList = (process.env.ALLOWED_EMAILS ?? "")
+  .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+
+/**
  * Auth.js v5 with Google OAuth. Free, no monthly-active-user ceiling, and no
  * password for us to store or leak. The Drizzle adapter persists users and
  * linked accounts; sessions are JWTs so route protection needs no DB round trip.
  */
-const allowList = (process.env.ALLOWED_EMAILS ?? "")
-  .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: DrizzleAdapter(db, {
     usersTable: users,
