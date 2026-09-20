@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { positions, priceBars } from "@/lib/db/schema";
 import type { Candle } from "@/lib/core/parse-candles";
 import { normalizeSymbol } from "@/lib/core/symbols";
-import { contextWindow, fetchWindow } from "@/lib/core/window";
+import { closureGapIn, contextWindow, fetchWindow } from "@/lib/core/window";
 import { readOrDegrade } from "@/lib/db/schema-check";
 
 // Re-exported so callers have one place to reach for anything candle-shaped.
@@ -105,45 +105,14 @@ async function missingTradingDaysUnguarded(accountId: string, symbol: string): P
   return rows;
 }
 
-export interface ClosureGap {
-  /** Last price before the market shut, and first price after it reopened. */
-  before: number;
-  after: number;
-  /** after − before, signed, in points. */
-  points: number;
-  hoursShut: number;
-  shutAt: Date;
-  reopenedAt: Date;
-}
+export type { ClosureGap } from "@/lib/core/window";
 
 /**
- * How far price moved while the market was shut.
- *
- * Found from the bars themselves — the longest stretch with no data inside the
- * window — rather than from a calendar of session hours, which differ by broker
- * and move with daylight saving. Only ever called for a trade already known to
- * have spanned a weekend, so the longest silence is the closure and not a hole
- * in what has been imported.
+ * The same measurement, for callers that have not already loaded the bars.
+ * Kept thin: the rule itself lives in core, next to the window arithmetic it
+ * belongs with, so the trade page can answer this from candles it already has.
  */
-export async function closureGap(symbol: string, from: Date, to: Date): Promise<ClosureGap | null> {
+export async function closureGap(symbol: string, from: Date, to: Date) {
   const bars = await loadBars(symbol, from, to);
-  if (bars.length < 2) return null;
-
-  let widest = 0, at = -1;
-  for (let i = 1; i < bars.length; i++) {
-    const gap = bars[i].time - bars[i - 1].time;
-    if (gap > widest) { widest = gap; at = i; }
-  }
-  // Six hours. Long enough that no quiet patch of a 23-hour market reaches it,
-  // short enough to catch a closure shortened by a holiday.
-  if (at < 1 || widest < 6 * 3600) return null;
-
-  const before = bars[at - 1].close, after = bars[at].open;
-  return {
-    before, after,
-    points: after - before,
-    hoursShut: widest / 3600,
-    shutAt: new Date(bars[at - 1].time * 1000),
-    reopenedAt: new Date(bars[at].time * 1000),
-  };
+  return closureGapIn(bars, Math.floor(from.getTime() / 1000), Math.floor(to.getTime() / 1000));
 }

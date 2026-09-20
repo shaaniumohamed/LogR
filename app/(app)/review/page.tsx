@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { loadAnnotations } from "@/lib/actions";
 import { loadTrades } from "@/lib/queries";
+import { requireContext } from "@/lib/session";
 import { localDayKey } from "@/lib/core/metrics";
 import { confluenceLabel, feelingLabel, mistakeLabel } from "@/lib/core/taxonomy";
 import { heldOverWeekend } from "@/lib/core/analysis";
@@ -49,10 +50,12 @@ export default async function Review({ searchParams }: {
   const span = (SPANS.some((s) => s.key === sp.span) ? sp.span : "all") as SpanKey;
   const q = (sp.q ?? "").trim().slice(0, 80);
 
-  const { all, account, timeZone, isEmpty } = await loadTrades("all");
+  const { account } = await requireContext();
+  const [{ all, timeZone, isEmpty }, annotations] = await Promise.all([
+    loadTrades("all"),
+    loadAnnotations(account.id),
+  ]);
   if (isEmpty) return <Empty title="Nothing to review" body="Import your trade history first." />;
-
-  const annotations = await loadAnnotations(account.id);
   const byHash = new Map(annotations.map((a) => [a.identityHash, a]));
 
   /*

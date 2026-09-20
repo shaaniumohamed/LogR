@@ -1,9 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
-import { auth, signOut } from "@/auth";
-import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
+import { signOut } from "@/auth";
+import { requestContext } from "@/lib/session";
 import { ZoneSync } from "@/components/zone-sync";
 import { TabBar, TopNav } from "@/components/tab-bar";
 import { schemaIsCurrent } from "@/lib/db/schema-check";
@@ -27,13 +25,13 @@ const DESKTOP_EXTRA = [
 ] as const;
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const session = await auth();
-  if (!session?.user) redirect("/signin");
-  const me = await db.query.users.findFirst({ where: eq(users.id, session.user.id!) });
-  const savedZone = me?.timeZone ?? "UTC";
-  // Deploying is one step and migrating is another, and nothing links them. When
-  // they come apart, say so here rather than letting a page fail with a digest.
-  const schemaOk = await schemaIsCurrent();
+  // Both of these are shared, per-request, with whatever page renders inside —
+  // the context is memoised and the schema probe answers from an instance-level
+  // flag once it has succeeded, so the page below adds no crossings of its own
+  // for either. They run together because neither needs the other's answer.
+  const [ctx, schemaOk] = await Promise.all([requestContext(), schemaIsCurrent()]);
+  if (!ctx) redirect("/signin");
+  const savedZone = ctx.timeZone;
 
   return (
     <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-4">

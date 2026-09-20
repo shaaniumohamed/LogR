@@ -5,8 +5,8 @@
    is insufficient, so secondary encoding (signs, baselines, printed values) is
    mandatory wherever it appears. */
 @theme {
-  --font-sans: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: var(--font-instrument), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 :root {

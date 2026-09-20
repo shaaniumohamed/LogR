@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/auth";
@@ -6,6 +7,7 @@ import { db } from "@/lib/db";
 import { importBatches, positions, zoneTrades } from "@/lib/db/schema";
 import { getOrCreateAccount } from "@/lib/account";
 import { clusterPositions } from "@/lib/core/cluster";
+import { tradesTag } from "@/lib/queries";
 import type { Position } from "@/lib/core/types";
 
 export const runtime = "nodejs";
@@ -137,6 +139,14 @@ export async function POST(req: Request) {
   await db.update(importBatches)
     .set({ rowsInserted: inserted, rowsDuplicate: rows.length - inserted })
     .where(and(eq(importBatches.id, batch.id), eq(importBatches.userId, userId)));
+
+  // The trade list is cached between requests so a page load is not a round
+  // trip to another continent. An import is the only thing that changes it, so
+  // it is also the only thing that has to clear it — and it must, or the reader
+  // would drop a file in and watch nothing happen.
+  // `expire: 0` rather than a named profile: an import must be visible on the
+  // very next page load, not eventually.
+  revalidateTag(tradesTag(account.id), { expire: 0 });
 
   return NextResponse.json({
     ok: true,

@@ -6,6 +6,7 @@ import { Info, Caveat } from "@/components/info";
 import { holdBucket, sessionOf, weekdayIn, counterfactual, heldOverWeekend } from "@/lib/core/analysis";
 import { clusterLevels, type Mark } from "@/lib/core/levels";
 import { loadExits, loadTrades, resolvePeriod } from "@/lib/queries";
+import { requireContext } from "@/lib/session";
 import { PeriodTabs } from "@/components/period-tabs";
 import { zoneName } from "@/lib/timezones";
 import { BarChart, type BarRow } from "@/components/charts";
@@ -70,7 +71,13 @@ const ENDED_LABEL: Record<string, string> = {
 
 export default async function Analytics({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
   const period = resolvePeriod((await searchParams).period);
-  const { trades, account, timeZone, isEmpty } = await loadTrades(period);
+  const { account } = await requireContext();
+  // Independent reads, started together — see the note on the trade page.
+  const [{ trades, timeZone, isEmpty }, annotations, exits] = await Promise.all([
+    loadTrades(period),
+    loadAnnotations(account.id),
+    loadExits(account.id, period),
+  ]);
 
   if (isEmpty) {
     return <Empty title="Nothing to analyse yet" body="Import your broker history and the patterns appear here automatically — nothing to fill in." />;
@@ -81,7 +88,6 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
   // Annotation-backed analysis. These sections stay hidden until there is enough
   // tagged data to say anything, rather than showing an empty chart that implies
   // the trader has no patterns when in fact they have not tagged any trades yet.
-  const annotations = await loadAnnotations(account.id);
   const byHash = new Map(annotations.map((a) => [a.identityHash, a]));
   const tagged = trades.filter((t) => byHash.has(t.id));
   const ANNOT_MIN = 15;
@@ -121,7 +127,6 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
    * broker, so pooling it with real stop-outs hides both: it makes the stop group
    * look survivable and hides how large the genuine losses are.
    */
-  const exits = await loadExits(account.id, period);
   const exitGroups = new Map<string, { net: number; n: number; won: number }>();
   for (const e of exits) {
     const pnl = e.profit + e.commission + e.swap;

@@ -1,9 +1,6 @@
 import Link from "next/link";
-import { desc, eq, sql } from "drizzle-orm";
-import { auth } from "@/auth";
-import { db } from "@/lib/db";
-import { positions } from "@/lib/db/schema";
-import { getOrCreateAccount } from "@/lib/account";
+import { requireContext } from "@/lib/session";
+import { loadTrades } from "@/lib/queries";
 import { loadCoverage, missingTradingDays } from "@/lib/candles";
 import ImportClient from "./import-client";
 import { CandleImport } from "./candle-import";
@@ -64,16 +61,16 @@ function TradesTab() {
 }
 
 async function CandlesTab() {
-  const session = await auth();
-  const account = await getOrCreateAccount(session!.user!.id!);
+  const { account } = await requireContext();
 
-  // Default to whatever this trader actually trades, rather than making them type it.
-  const [top] = await db
-    .select({ symbol: positions.symbol, n: sql<number>`count(*)::int` })
-    .from(positions).where(eq(positions.accountId, account.id))
-    .groupBy(positions.symbol).orderBy(desc(sql`count(*)`)).limit(1);
-
-  const symbol = top?.symbol ?? "XAUUSD";
+  // Default to whatever this trader actually trades, rather than making them
+  // type it. Counted off the cached trade list rather than with a GROUP BY of
+  // its own: the list is already in memory on nearly every request, and one
+  // fewer crossing to the database is worth more here than the tidier query.
+  const { all } = await loadTrades("all");
+  const tally = new Map<string, number>();
+  for (const t of all) tally.set(t.symbol, (tally.get(t.symbol) ?? 0) + 1);
+  const symbol = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "XAUUSD";
   const [coverage, missing] = await Promise.all([
     loadCoverage(),
     missingTradingDays(account.id, symbol),

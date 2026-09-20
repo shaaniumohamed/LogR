@@ -4,6 +4,7 @@ import { computeStats, hourIn, localDayKey } from "@/lib/core/metrics";
 import { byLocalDay, dayShape, heldOverWeekend, sessionOf } from "@/lib/core/analysis";
 import { adjacentTradingDay, dayLabel, monthLabel } from "@/lib/core/calendar";
 import { loadTrades } from "@/lib/queries";
+import { requireContext } from "@/lib/session";
 import { loadAnnotations } from "@/lib/actions";
 import { BarChart, DayCurve } from "@/components/charts";
 import { Info } from "@/components/info";
@@ -28,7 +29,11 @@ export default async function DayPage({ params }: { params: Promise<{ date: stri
   const { date } = await params;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) notFound();
 
-  const { all, account, timeZone, isEmpty } = await loadTrades("all");
+  const { account } = await requireContext();
+  const [{ all, timeZone, isEmpty }, annotations] = await Promise.all([
+    loadTrades("all"),
+    loadAnnotations(account.id),
+  ]);
   if (isEmpty) {
     return <Empty title="Nothing imported yet" body="Import a broker CSV and your days appear here." />;
   }
@@ -76,7 +81,6 @@ export default async function DayPage({ params }: { params: Promise<{ date: stri
 
   const s = computeStats(trades);
   const shape = dayShape(trades);
-  const annotations = await loadAnnotations(account.id);
   const annotated = new Set(annotations.filter((a) => a.note || a.setup || a.emotion).map((a) => a.identityHash));
   const taggedToday = trades.filter((t) => annotated.has(t.id)).length;
 

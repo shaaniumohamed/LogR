@@ -79,3 +79,55 @@ export function coversFills(
   }
   return { covered, total: fills.length, complete: covered === fills.length };
 }
+
+
+export interface ClosureGap {
+  /** Last price before the market shut, and first price after it reopened. */
+  before: number;
+  after: number;
+  /** after − before, signed. */
+  points: number;
+  hoursShut: number;
+  /** Epoch seconds. */
+  shutAt: number;
+  reopenedAt: number;
+}
+
+/**
+ * How far price moved while the market was shut.
+ *
+ * Found from the bars themselves — the longest stretch with no data inside the
+ * window — rather than from a calendar of session hours, which differ by broker
+ * and move with daylight saving. Only ever called for a trade already known to
+ * have spanned a weekend, so the longest silence is the closure and not a hole
+ * in what has been imported.
+ *
+ * Pure, and given bars rather than a symbol and a window, so the page that has
+ * already loaded the chart's candles does not fetch a second overlapping set
+ * just to answer this.
+ */
+export function closureGapIn(
+  bars: { time: number; open: number; close: number }[],
+  fromSec: number,
+  toSec: number,
+  minHoursShut = 6,
+): ClosureGap | null {
+  const inside = bars.filter((b) => b.time >= fromSec && b.time <= toSec);
+  if (inside.length < 2) return null;
+
+  let widest = 0, at = -1;
+  for (let i = 1; i < inside.length; i++) {
+    const gap = inside[i].time - inside[i - 1].time;
+    if (gap > widest) { widest = gap; at = i; }
+  }
+  if (at < 1 || widest < minHoursShut * 3600) return null;
+
+  const before = inside[at - 1].close, after = inside[at].open;
+  return {
+    before, after,
+    points: after - before,
+    hoursShut: widest / 3600,
+    shutAt: inside[at - 1].time,
+    reopenedAt: inside[at].time,
+  };
+}

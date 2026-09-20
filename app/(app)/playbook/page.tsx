@@ -2,6 +2,7 @@ import Link from "next/link";
 import { computeStats } from "@/lib/core/metrics";
 import { tagContrast } from "@/lib/core/analysis";
 import { loadTrades, resolvePeriod } from "@/lib/queries";
+import { requireContext } from "@/lib/session";
 import { loadAnnotations } from "@/lib/actions";
 import { confluenceLabel, feelingLabel, mistakeLabel } from "@/lib/core/taxonomy";
 import { PeriodTabs } from "@/components/period-tabs";
@@ -33,13 +34,15 @@ export default async function Playbook({ searchParams }: {
   searchParams: Promise<{ period?: string }>;
 }) {
   const period = resolvePeriod((await searchParams).period);
-  const { trades, account, isEmpty } = await loadTrades(period);
+  const { account } = await requireContext();
+  const [{ trades, isEmpty }, notes] = await Promise.all([
+    loadTrades(period),
+    loadAnnotations(account.id),
+  ]);
 
   if (isEmpty) {
     return <Empty title="Nothing to build a playbook from yet" body="Import your history, then tag a few trades with the setup you took." />;
   }
-
-  const notes = await loadAnnotations(account.id);
   const byHash = new Map(notes.map((a) => [a.identityHash, a]));
 
   const groups = new Map<string, ZoneTrade[]>();

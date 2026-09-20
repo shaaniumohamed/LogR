@@ -4,8 +4,9 @@ import { loadAnnotation } from "@/lib/actions";
 import { loadTradeWithLegs, loadTrades } from "@/lib/queries";
 import { pointValuePerLot } from "@/lib/core/metrics";
 import { TradeChart } from "@/components/trade-chart";
-import { closureGap, contextWindow, fetchWindow, loadBars } from "@/lib/candles";
-import { coversFills } from "@/lib/core/window";
+import { contextWindow, fetchWindow, loadBars } from "@/lib/candles";
+import { closureGapIn, coversFills } from "@/lib/core/window";
+import { requireContext } from "@/lib/session";
 import { localDayKey } from "@/lib/core/metrics";
 import { dayLabel } from "@/lib/core/calendar";
 import { heldOverWeekend } from "@/lib/core/analysis";
@@ -23,13 +24,25 @@ export default async function TradeDetail({ params, searchParams }: {
 }) {
   const { id } = await params;
   const { from } = await searchParams;
-  const { all, account, timeZone } = await loadTrades("all");
+  /*
+   * Three independent reads, started together.
+   *
+   * They used to run one after another, and on a deployment where the database
+   * sits on a different continent from the function that is a wasted crossing
+   * apiece — the reader watches a blank screen for the sum of them. None of the
+   * three needs another's answer, so the only thing serialising them bought was
+   * a tidier-looking function.
+   */
+  const { account } = await requireContext();
+  const [{ all, timeZone }, annotation, withLegs] = await Promise.all([
+    loadTrades("all"),
+    loadAnnotation(account.id, id),
+    loadTradeWithLegs(account.id, id),
+  ]);
 
   const t = all.find((x) => x.id === id);
   if (!t) notFound();
-
-  const existing = (await loadAnnotation(account.id, id)) ?? null;
-  const withLegs = await loadTradeWithLegs(account.id, id);
+  const existing = annotation ?? null;
 
   // Candles for a window around the trade, if any have been imported. Loaded at
   // one minute and rolled up in the browser, so the timeframe buttons are free.
@@ -41,7 +54,11 @@ export default async function TradeDetail({ params, searchParams }: {
   // Only measured when the clock already says a closure was spanned, so the
   // longest silence in the bars is that closure and not a hole in the imports.
   const overWeekend = heldOverWeekend(t.openedAt, t.closedAt);
-  const gap = overWeekend ? await closureGap(t.symbol, t.openedAt, t.closedAt) : null;
+  // Measured from the candles already on the page rather than fetched again:
+  // the chart's window contains the trade's own span by construction.
+  const gap = overWeekend
+    ? closureGapIn(bars, Math.floor(t.openedAt.getTime() / 1000), Math.floor(t.closedAt.getTime() / 1000))
+    : null;
   const againstYou = gap ? (t.direction === "long" ? -gap.points : gap.points) : 0;
 
   const fills = (withLegs?.legs ?? []).flatMap((l) => [

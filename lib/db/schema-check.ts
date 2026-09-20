@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { sql } from "drizzle-orm";
 import { db } from "./index";
 
@@ -43,14 +44,22 @@ export async function readOrDegrade<T>(read: () => Promise<T>, fallback: T): Pro
  */
 let current = false;
 
-export async function schemaIsCurrent(): Promise<boolean> {
+/**
+ * The two probes run together rather than one after the other. Each is a
+ * separate crossing to the database and neither depends on the other, so
+ * serialising them doubled the delay in front of every single page for no
+ * reason at all.
+ */
+export const schemaIsCurrent = cache(async (): Promise<boolean> => {
   if (current) return true;
   try {
-    await db.execute(sql`select "drawings" from "trade_annotation" limit 0`);
-    await db.execute(sql`select 1 from "price_bar" limit 0`);
+    await Promise.all([
+      db.execute(sql`select "drawings" from "trade_annotation" limit 0`),
+      db.execute(sql`select 1 from "price_bar" limit 0`),
+    ]);
     current = true;
   } catch {
     return false;
   }
   return true;
-}
+});

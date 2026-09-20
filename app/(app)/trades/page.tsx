@@ -3,6 +3,7 @@ import { computeStats, hourIn, localDayKey } from "@/lib/core/metrics";
 import { heldOverWeekend, holdBucket, sessionOf, weekdayIn } from "@/lib/core/analysis";
 import { monthLabel } from "@/lib/core/calendar";
 import { loadTrades, resolvePeriod } from "@/lib/queries";
+import { requireContext } from "@/lib/session";
 import { loadAnnotations } from "@/lib/actions";
 import { confluenceLabel, feelingLabel, mistakeLabel } from "@/lib/core/taxonomy";
 import { PeriodTabs } from "@/components/period-tabs";
@@ -70,7 +71,11 @@ export default async function Trades({ searchParams }: {
   const page = Math.max(1, Number(sp.page ?? 1) || 1);
   const PER = 100;
 
-  const { all, account, trades, timeZone, isEmpty } = await loadTrades(period);
+  const { account } = await requireContext();
+  const [{ all, trades, timeZone, isEmpty }, notes] = await Promise.all([
+    loadTrades(period),
+    loadAnnotations(account.id),
+  ]);
   if (isEmpty) {
     return <Empty title="No trades yet" body="Import a broker CSV and every trade shows up here." />;
   }
@@ -84,7 +89,6 @@ export default async function Trades({ searchParams }: {
    * where the actual lesson is. Every tag the trader has ever applied is a filter
    * here, and every bar in Patterns links into it.
    */
-  const notes = await loadAnnotations(account.id);
   const byHash = new Map(notes.map((a) => [a.identityHash, a]));
 
   const oneOf = <T extends string>(raw: string | undefined, allowed: readonly T[]): T | null =>

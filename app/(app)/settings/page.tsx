@@ -4,6 +4,8 @@ import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
+import { requireContext } from "@/lib/session";
+import { checkHealth, regionName, verdictFor } from "@/lib/health";
 import { COMMON_ZONES, isValidZone, offsetLabel } from "@/lib/timezones";
 import { Card, Eyebrow, Note, Verdict } from "@/components/ui";
 import { DetectZone } from "./detect-zone";
@@ -11,10 +13,9 @@ import { DetectZone } from "./detect-zone";
 export const dynamic = "force-dynamic";
 
 export default async function Settings() {
-  const session = await auth();
-  const userId = session!.user!.id!;
-  const me = await db.query.users.findFirst({ where: eq(users.id, userId) });
-  const current = me?.timeZone ?? "UTC";
+  const [ctx, health] = await Promise.all([requireContext(), checkHealth()]);
+  const current = ctx.timeZone;
+  const speed = verdictFor(health.dbMs);
 
   async function save(formData: FormData) {
     "use server";
@@ -59,6 +60,41 @@ export default async function Settings() {
             </li>
           ))}
         </ul>
+      </Card>
+
+      <Card>
+        <Eyebrow>Speed</Eyebrow>
+        <Verdict>
+          The database is <b className={speed.tone === "pos" ? "pos" : speed.tone === "neg" ? "neg" : undefined}>
+            {speed.label}
+          </b>
+          {health.dbMs !== null ? <> — <b className="num">{health.dbMs} ms</b> for a question with no work in it.</> : "."}
+        </Verdict>
+        <Note>{speed.advice}</Note>
+        <div className="mt-3 grid grid-cols-2 gap-3 text-[13px]">
+          <div>
+            <div className="text-[11px]" style={{ color: "var(--ink3)" }}>App runs in</div>
+            <div className="font-semibold">{regionName(health.region)}</div>
+          </div>
+          <div>
+            <div className="text-[11px]" style={{ color: "var(--ink3)" }}>Round trip</div>
+            <div className="num font-semibold">{health.dbMs === null ? "—" : `${health.dbMs} ms`}</div>
+          </div>
+        </div>
+        <div className="mt-4 rounded-lg p-3 text-[12.5px] leading-relaxed"
+             style={{ background: "var(--s3)", color: "var(--ink2)" }}>
+          <b>Why this number decides how the app feels.</b> Every screen here is built fresh
+          when you open it, because the figures on it are yours and change with every import.
+          Building one takes a handful of questions to the database, and each question costs
+          this much before any work is done. Two or three milliseconds is invisible; two or
+          three hundred is most of a second of staring at nothing.
+          <br /><br />
+          <b>If this number is large.</b> It means the app and the database are in different
+          parts of the world, and the fix is to put them in the same one. Check which region
+          your Neon project is in, then set the app&rsquo;s region to match it in{" "}
+          <b>Vercel → Settings → Functions</b>. It is a one-line change and it is worth more
+          than any amount of tuning in the code.
+        </div>
       </Card>
 
       <Card>
