@@ -67,6 +67,14 @@ npm i -g vercel && vercel        # first run links the project
 ```
 …or push to GitHub and import the repo at **vercel.com/new**.
 
+`vercel.json` pins the framework to `nextjs`. It is there because Vercel decides
+the preset by sniffing the repository when the project is first imported, and an
+import that happens before the code is on the default branch settles on "static
+site" — after which every build compiles correctly and then fails looking for a
+`public` directory that a Next.js app does not have. Naming the framework in the
+repository makes the deployment reproducible instead of dependent on what the
+dashboard guessed once.
+
 Then in **Project → Settings → Environment Variables** add, for Production:
 
 ```
