@@ -104,3 +104,46 @@ async function missingTradingDaysUnguarded(accountId: string, symbol: string): P
     .orderBy(sql`1 DESC`);
   return rows;
 }
+
+export interface ClosureGap {
+  /** Last price before the market shut, and first price after it reopened. */
+  before: number;
+  after: number;
+  /** after − before, signed, in points. */
+  points: number;
+  hoursShut: number;
+  shutAt: Date;
+  reopenedAt: Date;
+}
+
+/**
+ * How far price moved while the market was shut.
+ *
+ * Found from the bars themselves — the longest stretch with no data inside the
+ * window — rather than from a calendar of session hours, which differ by broker
+ * and move with daylight saving. Only ever called for a trade already known to
+ * have spanned a weekend, so the longest silence is the closure and not a hole
+ * in what has been imported.
+ */
+export async function closureGap(symbol: string, from: Date, to: Date): Promise<ClosureGap | null> {
+  const bars = await loadBars(symbol, from, to);
+  if (bars.length < 2) return null;
+
+  let widest = 0, at = -1;
+  for (let i = 1; i < bars.length; i++) {
+    const gap = bars[i].time - bars[i - 1].time;
+    if (gap > widest) { widest = gap; at = i; }
+  }
+  // Six hours. Long enough that no quiet patch of a 23-hour market reaches it,
+  // short enough to catch a closure shortened by a holiday.
+  if (at < 1 || widest < 6 * 3600) return null;
+
+  const before = bars[at - 1].close, after = bars[at].open;
+  return {
+    before, after,
+    points: after - before,
+    hoursShut: widest / 3600,
+    shutAt: new Date(bars[at - 1].time * 1000),
+    reopenedAt: new Date(bars[at].time * 1000),
+  };
+}

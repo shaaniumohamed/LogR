@@ -102,7 +102,16 @@ export const SETUPS = [
   "No setup — impulse",
 ] as const;
 
-export const TIMEFRAMES = ["M1", "M5", "M15", "H1", "H4", "D1"] as const;
+/**
+ * Where the idea came from, in the trader's own set.
+ *
+ * Wider than the chart's zoom buttons on purpose: a setup is often read on the
+ * daily or weekly and executed on the three minute, and the whole point of
+ * recording it is to find out which of those reads actually pay.
+ */
+export const TIMEFRAMES = [
+  "M1", "M3", "M5", "M10", "M15", "M30", "H1", "H4", "D1", "W1",
+] as const;
 
 /**
  * Feelings, split by what they predict rather than by sentiment.

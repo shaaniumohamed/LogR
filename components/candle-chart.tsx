@@ -18,9 +18,22 @@ export interface Fill {
   profit: number;
 }
 
-/** Coarser timeframes are rolled up in the browser, so switching costs no round trip. */
+/**
+ * Coarser timeframes are rolled up in the browser, so switching costs no round trip.
+ *
+ * The odd ones are here because they are the ones actually looked at. A journal
+ * that offers 1, 5, 15 and 60 because those are the conventional buttons is
+ * showing a chart the trader does not read; if the entry was found on the three
+ * minute, the review has to be able to show the three minute.
+ *
+ * Daily and weekly are deliberately absent: a review window is hours to a few
+ * days, and a daily candle over it is one candle. Those belong on the
+ * annotation, as a record of where the idea came from, not here as a zoom.
+ */
 const TIMEFRAMES = [
-  { key: 1, label: "1m" }, { key: 5, label: "5m" }, { key: 15, label: "15m" }, { key: 60, label: "1h" },
+  { key: 1, label: "1m" }, { key: 3, label: "3m" }, { key: 5, label: "5m" },
+  { key: 10, label: "10m" }, { key: 15, label: "15m" }, { key: 30, label: "30m" },
+  { key: 60, label: "1h" },
 ] as const;
 
 export type DrawMode = null | "level" | "zone";
@@ -73,6 +86,13 @@ export function CandleChart({
   const [geom, setGeom] = useState<{ rightPad: number; y: (p: number) => number | null } | null>(null);
 
   const shown = useMemo(() => aggregate(bars, tf), [bars, tf]);
+
+  // A button that yields four candles is a button that wastes a tap. Twelve is
+  // about where a chart stops being a chart.
+  const offered = useMemo(
+    () => TIMEFRAMES.filter((t) => t.key === 1 || bars.length / t.key >= 12),
+    [bars.length],
+  );
 
   const fmtTime = useMemo(() => new Intl.DateTimeFormat("en-GB", {
     hour: "2-digit", minute: "2-digit", hour12: false, timeZone,
@@ -238,7 +258,7 @@ export function CandleChart({
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="flex gap-1">
-          {TIMEFRAMES.map((t) => (
+          {offered.map((t) => (
             <button key={t.key} type="button" onClick={() => setTf(t.key)}
               className="rounded-md px-2.5 py-1 text-[11px] font-semibold"
               style={tf === t.key

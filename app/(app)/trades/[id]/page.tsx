@@ -3,10 +3,11 @@ import { notFound } from "next/navigation";
 import { loadAnnotation } from "@/lib/actions";
 import { loadTradeWithLegs, loadTrades } from "@/lib/queries";
 import { TradeChart } from "@/components/trade-chart";
-import { contextWindow, fetchWindow, loadBars } from "@/lib/candles";
+import { closureGap, contextWindow, fetchWindow, loadBars } from "@/lib/candles";
+import { heldOverWeekend } from "@/lib/core/analysis";
 import { ChartPanel } from "./chart-panel";
 import { GetCandles } from "./get-candles";
-import { Card, Eyebrow, Note, Stat, StatGrid, money, pct } from "@/components/ui";
+import { Card, Eyebrow, Note, Stat, StatGrid, Verdict, money, pct } from "@/components/ui";
 import { Info } from "@/components/info";
 import { AnnotateForm } from "./annotate-form";
 
@@ -32,6 +33,12 @@ export default async function TradeDetail({ params, searchParams }: {
   const bars = await loadBars(t.symbol, barsFrom, barsTo);
   // Whole days, so one call covers every other trade taken that day too.
   const toFetch = fetchWindow(t.openedAt, t.closedAt);
+
+  // Only measured when the clock already says a closure was spanned, so the
+  // longest silence in the bars is that closure and not a hole in the imports.
+  const overWeekend = heldOverWeekend(t.openedAt, t.closedAt);
+  const gap = overWeekend ? await closureGap(t.symbol, t.openedAt, t.closedAt) : null;
+  const againstYou = gap ? (t.direction === "long" ? -gap.points : gap.points) : 0;
 
   const fills = (withLegs?.legs ?? []).flatMap((l) => [
     { kind: "in" as const, time: Math.floor(l.openedAt.getTime() / 1000), price: l.openPrice, lots: l.lots, profit: l.profit },
@@ -102,6 +109,38 @@ export default async function TradeDetail({ params, searchParams }: {
           was dead.
         </Info>
       </Card>
+
+      {overWeekend && (
+        <Card className="!border-[color:var(--warn)]">
+          <Eyebrow>Held through the weekend</Eyebrow>
+          <Verdict>
+            {gap
+              ? `The market was shut for ${Math.round(gap.hoursShut)} hours in the middle of this trade, and reopened ${Math.abs(gap.points).toFixed(2)} ${againstYou > 0 ? "against" : "in favour of"} you.`
+              : "This position was open while the market was shut for the weekend."}
+          </Verdict>
+          {gap && (
+            <div className="mt-3">
+              <StatGrid cols={3}>
+                <Stat label="Last price Friday" value={gap.before.toFixed(2)} />
+                <Stat label="First price after" value={gap.after.toFixed(2)} />
+                <Stat label="Gap" value={`${gap.points > 0 ? "+" : "−"}${Math.abs(gap.points).toFixed(2)}`}
+                      tone={againstYou > 0 ? "neg" : "pos"}
+                      sub={againstYou > 0 ? "against you" : "in your favour"} />
+              </StatGrid>
+            </div>
+          )}
+          <Info title="Why this is its own category">
+            A position held through a closure is not the trade you entered. There is no
+            managing it, no respecting an invalidation, no taking a partial — it reopens
+            wherever the world decided over two days, and the first price you can act on may
+            be a long way from the last one you saw.
+            <br /><br />
+            That makes the outcome something other than a read on your setup, which is why it
+            is separated out in Patterns rather than averaged in with everything else. It is
+            detected from the clock, so it needs no tagging from you.
+          </Info>
+        </Card>
+      )}
 
       {withLegs && withLegs.legs.length > 0 && (
         <Card>

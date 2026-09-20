@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { heldOverWeekend } from "../lib/core/analysis";
 import { computeStats, costPicture, hourIn, localDayKey } from "../lib/core/metrics";
 import type { ZoneTrade } from "../lib/core/types";
 
@@ -73,5 +74,31 @@ describe("timezone helpers", () => {
     const d = new Date("2026-09-18T18:00:00Z"); // 02:00 next day in MYT
     expect(localDayKey(d, "Asia/Kuala_Lumpur")).toBe("2026-09-19");
     expect(localDayKey(d, "UTC")).toBe("2026-09-18");
+  });
+});
+
+describe("heldOverWeekend", () => {
+  const at = (d: number, h: number) => new Date(Date.UTC(2026, 8, d, h));
+  // 2026-09-18 is a Friday, 19 Saturday, 20 Sunday, 21 Monday.
+
+  it("catches a Friday evening entry that closed after the weekend", () => {
+    // The trade this exists for: entered near the close, reopened elsewhere.
+    expect(heldOverWeekend(at(18, 20), at(21, 1))).toBe(true);
+  });
+
+  it("leaves a Friday trade closed the same evening alone", () => {
+    expect(heldOverWeekend(at(18, 20), at(18, 23))).toBe(false);
+  });
+
+  it("leaves a midweek hold alone however long", () => {
+    expect(heldOverWeekend(at(14, 9), at(17, 9))).toBe(false);
+  });
+
+  it("catches a hold that spans more than one week", () => {
+    expect(heldOverWeekend(at(14, 9), at(23, 9))).toBe(true);
+  });
+
+  it("counts a position still open at any point on Saturday", () => {
+    expect(heldOverWeekend(at(18, 23), at(19, 1))).toBe(true);
   });
 });

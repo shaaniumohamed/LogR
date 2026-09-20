@@ -2,12 +2,12 @@ import { computeStats, segmentBy, hourIn } from "@/lib/core/metrics";
 import { loadAnnotations } from "@/lib/actions";
 import { confluenceLabel, feelingLabel, isGoodFeeling, mistakeLabel } from "@/lib/core/taxonomy";
 import { Info, Caveat } from "@/components/info";
-import { holdBucket, sessionOf, weekdayIn, counterfactual } from "@/lib/core/analysis";
+import { holdBucket, sessionOf, weekdayIn, counterfactual, heldOverWeekend } from "@/lib/core/analysis";
 import { loadExits, loadTrades, resolvePeriod } from "@/lib/queries";
 import { PeriodTabs } from "@/components/period-tabs";
 import { zoneName } from "@/lib/timezones";
 import { BarChart, type BarRow } from "@/components/charts";
-import { Card, Empty, Eyebrow, Note, Verdict, count, money, money0, pct } from "@/components/ui";
+import { Card, Empty, Eyebrow, Note, Stat, StatGrid, Verdict, count, money, money0, pct } from "@/components/ui";
 import type { ZoneTrade } from "@/lib/core/types";
 
 export const dynamic = "force-dynamic";
@@ -137,6 +137,18 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
     ? counterfactual(trades, (t) => `${String(hourIn(t.openedAt, timeZone)).padStart(2, "0")}:00` === worstHour.label)
     : null;
   const cfLong = counterfactual(trades, (t) => t.holdMinutes > 30);
+
+  /*
+   * Weekend holds are separated rather than averaged in, because they are not a
+   * read on the setup. Nothing about a position held through a closure was
+   * decided after entry: it reopens where it reopens. Mixed into "how long do I
+   * hold", a handful of them can swamp the hold-time answer entirely.
+   */
+  const overWeekend = trades.filter((t) => heldOverWeekend(t.openedAt, t.closedAt));
+  const weekendStats = computeStats(overWeekend);
+  const cfWeekend = overWeekend.length
+    ? counterfactual(trades, (t) => heldOverWeekend(t.openedAt, t.closedAt))
+    : null;
 
   return (
     <div className="space-y-4">
@@ -354,6 +366,43 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
         rows={ladderRows}
         note="If single entries do better, your extra layers are adding size to trades that were already going wrong."
       />
+      {overWeekend.length > 0 && (
+        <Card>
+          <Eyebrow>Held through a weekend</Eyebrow>
+          <Verdict>
+            {weekendStats.net < 0
+              ? `${count(overWeekend.length)} stayed open while the market was shut, and together they cost ${money0(Math.abs(weekendStats.net))}.`
+              : `${count(overWeekend.length)} stayed open while the market was shut, and together they made ${money0(weekendStats.net)}.`}
+          </Verdict>
+          <div className="mt-3">
+            <StatGrid cols={3}>
+              <Stat label="Weekend holds" value={String(overWeekend.length)}
+                    sub={`${pct(weekendStats.winRate, 0)} won`} />
+              <Stat label="Their total" value={money0(weekendStats.net)}
+                    tone={weekendStats.net >= 0 ? "pos" : "neg"} />
+              <Stat label="Worst one" value={money0(Math.min(...overWeekend.map((t) => t.netPnl)))}
+                    tone="neg" />
+            </StatGrid>
+          </div>
+          {cfWeekend && (
+            <Note>
+              Without them the account would be {money0(cfWeekend.after)} rather than{" "}
+              {money0(cfWeekend.before)}.
+            </Note>
+          )}
+          <Info title="Why these are counted apart">
+            A position open through a closure is not the trade that was entered. It cannot be
+            managed, an invalidation cannot be respected, and it reopens wherever the market
+            decided over two days — the first price you can act on may be a long way from the
+            last one you saw.
+            <br /><br />
+            Averaged in with everything else, a handful of them can swamp the answer to a
+            question they have nothing to do with, like how long your holds should be. They
+            are found from the clock, so nothing needs tagging.
+          </Info>
+        </Card>
+      )}
+
     </div>
   );
 }

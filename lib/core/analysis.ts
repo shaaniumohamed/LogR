@@ -125,3 +125,28 @@ export function weekKey(date: Date, timeZone: string): string {
 export function monthKey(date: Date, timeZone: string): string {
   return localDayKey(date, timeZone).slice(0, 7);
 }
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Was this position open while the market was shut for the weekend?
+ *
+ * Worth knowing on its own, because a position held through a closure is not
+ * the trade that was entered. Nothing can be managed, no invalidation can be
+ * respected, and the position reopens wherever the world decided over two days
+ * — which is how a scalp with a mental stop becomes a two-hundred-point loss
+ * that was never a decision.
+ *
+ * Detected against Saturday UTC rather than against session hours. Gold and FX
+ * are shut for the whole of it whatever the season, so the test cannot report a
+ * closure that did not happen; session boundaries move with daylight saving and
+ * differ by broker, and being approximately right about those would be worse
+ * than being exactly right about this.
+ */
+export function heldOverWeekend(openedAt: Date, closedAt: Date): boolean {
+  if (closedAt <= openedAt) return false;
+  const dayStart = Date.UTC(openedAt.getUTCFullYear(), openedAt.getUTCMonth(), openedAt.getUTCDate());
+  const untilSaturday = (6 - new Date(dayStart).getUTCDay() + 7) % 7;
+  const saturday = dayStart + untilSaturday * DAY_MS;
+  return openedAt.getTime() < saturday + DAY_MS && closedAt.getTime() > saturday;
+}
