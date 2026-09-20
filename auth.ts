@@ -21,7 +21,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   }),
   providers: [Google],
   session: { strategy: "jwt" },
-  pages: { signIn: "/signin" },
+  // Errors land on our own sign-in page rather than Auth.js's generic one, which
+  // says "there is a problem with the server configuration" and leaves you to
+  // guess which part. Ours names the missing setting.
+  pages: { signIn: "/signin", error: "/signin" },
   callbacks: {
     /** Optional private-beta gate: set ALLOWED_EMAILS to lock the app down. */
     signIn({ user }) {
