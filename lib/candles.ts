@@ -1,9 +1,10 @@
 import { and, asc, between, count, eq, max, min, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { positions, priceBars } from "@/lib/db/schema";
+import { positions, priceBars, priceBarsHtf } from "@/lib/db/schema";
 import type { Candle } from "@/lib/core/parse-candles";
 import { normalizeSymbol } from "@/lib/core/symbols";
 import { closureGapIn, contextWindow, fetchWindow } from "@/lib/core/window";
+import { HIGHER_TIMEFRAMES } from "@/lib/core/timeframes";
 import { readOrDegrade } from "@/lib/db/schema-check";
 
 // Re-exported so callers have one place to reach for anything candle-shaped.
@@ -115,4 +116,61 @@ export type { ClosureGap } from "@/lib/core/window";
 export async function closureGap(symbol: string, from: Date, to: Date) {
   const bars = await loadBars(symbol, from, to);
   return closureGapIn(bars, Math.floor(from.getTime() / 1000), Math.floor(to.getTime() / 1000));
+}
+
+
+const DAY_MS = 86_400_000;
+
+/** Bars at one higher timeframe, oldest first. */
+export async function loadHtfBars(symbol: string, tf: string, from: Date, to: Date): Promise<Candle[]> {
+  return readOrDegrade(async () => {
+    const rows = await db.select().from(priceBarsHtf)
+      .where(and(
+        eq(priceBarsHtf.symbol, normalizeSymbol(symbol)),
+        eq(priceBarsHtf.tf, tf),
+        between(priceBarsHtf.t, from, to),
+      ))
+      .orderBy(asc(priceBarsHtf.t));
+    return rows.map((r) => ({
+      time: Math.floor(r.t.getTime() / 1000),
+      open: r.open, high: r.high, low: r.low, close: r.close,
+    }));
+  }, []);
+}
+
+/**
+ * Every higher timeframe for one trade, read together.
+ *
+ * Four statements rather than one, but issued in parallel, so the page waits
+ * for a single crossing instead of four. One statement would have meant reading
+ * eleven years of daily bars to satisfy the weekly window, which is a lot of
+ * rows thrown away to save a query that was not costing anything.
+ */
+export async function loadHtfAround(symbol: string, openedAt: Date, closedAt: Date) {
+  const pairs = await Promise.all(HIGHER_TIMEFRAMES.map(async (tf) => {
+    const bars = await loadHtfBars(
+      symbol, tf.key,
+      new Date(openedAt.getTime() - tf.loadBefore * DAY_MS),
+      new Date(closedAt.getTime() + tf.loadAfter * DAY_MS),
+    );
+    return [tf.key, bars] as const;
+  }));
+  return Object.fromEntries(pairs) as Record<string, Candle[]>;
+}
+
+export interface HtfCoverage { tf: string; bars: number; from: Date; to: Date }
+
+/** What higher-timeframe history exists, for the price-history screen. */
+export async function loadHtfCoverage(symbol: string): Promise<HtfCoverage[]> {
+  return readOrDegrade(async () => {
+    const rows = await db
+      .select({ tf: priceBarsHtf.tf, bars: count(), from: min(priceBarsHtf.t), to: max(priceBarsHtf.t) })
+      .from(priceBarsHtf)
+      .where(eq(priceBarsHtf.symbol, normalizeSymbol(symbol)))
+      .groupBy(priceBarsHtf.tf);
+    const order = HIGHER_TIMEFRAMES.map((t) => t.key);
+    return rows
+      .filter((r): r is HtfCoverage => r.from !== null && r.to !== null)
+      .sort((a, b) => order.indexOf(a.tf) - order.indexOf(b.tf));
+  }, []);
 }

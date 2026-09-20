@@ -4,7 +4,7 @@ import { loadAnnotation } from "@/lib/actions";
 import { loadTradeWithLegs, loadTrades } from "@/lib/queries";
 import { pointValuePerLot } from "@/lib/core/metrics";
 import { TradeChart } from "@/components/trade-chart";
-import { contextWindow, fetchWindow, loadBars } from "@/lib/candles";
+import { contextWindow, fetchWindow, loadBars, loadHtfAround } from "@/lib/candles";
 import { closureGapIn, coversFills } from "@/lib/core/window";
 import { requireContext } from "@/lib/session";
 import { localDayKey } from "@/lib/core/metrics";
@@ -47,7 +47,14 @@ export default async function TradeDetail({ params, searchParams }: {
   // Candles for a window around the trade, if any have been imported. Loaded at
   // one minute and rolled up in the browser, so the timeframe buttons are free.
   const { from: barsFrom, to: barsTo } = contextWindow(t.openedAt, t.closedAt);
-  const bars = await loadBars(t.symbol, barsFrom, barsTo);
+  // The minute series for the window around the trade, and the stored higher
+  // timeframes for the months and years behind it. Read together: five
+  // statements, one crossing.
+  const [bars, htf] = await Promise.all([
+    loadBars(t.symbol, barsFrom, barsTo),
+    loadHtfAround(t.symbol, t.openedAt, t.closedAt),
+  ]);
+  const hasHtf = Object.values(htf).some((xs) => xs.length >= 12);
   // Whole days, so one call covers every other trade taken that day too.
   const toFetch = fetchWindow(t.openedAt, t.closedAt);
 
@@ -195,6 +202,19 @@ export default async function TradeDetail({ params, searchParams }: {
                 Real price, with every entry and exit where it actually happened. Mark the
                 zones and levels you were trading — they save with the trade.
               </Note>
+              {!hasHtf && (
+                <div className="mt-3 rounded-lg p-3 text-[12.5px] leading-relaxed"
+                     style={{ background: "var(--s3)", color: "var(--ink2)" }}>
+                  <b>No daily or weekly context yet.</b> If the reason for this trade was a
+                  level read on a higher timeframe, this chart cannot show it — an intraday
+                  window is hours wide and the level may be months old. Four calls fetch
+                  hourly, four-hourly, daily and weekly candles once, for every trade you have
+                  and every trade you will take.{" "}
+                  <Link href="/import?tab=candles" style={{ color: "var(--c1)", fontWeight: 600 }}>
+                    Fetch them →
+                  </Link>
+                </div>
+              )}
               {!coverage.complete && (
                 <div className="mt-3 rounded-lg p-3 text-[12.5px] leading-relaxed"
                      style={{ background: "var(--s3)", borderLeft: "3px solid var(--warn)", color: "var(--ink2)" }}>
@@ -212,12 +232,15 @@ export default async function TradeDetail({ params, searchParams }: {
                 <ChartPanel
                   identityHash={t.id}
                   bars={bars}
+                  htf={htf}
                   fills={fills}
                   timeZone={timeZone}
                   symbol={t.symbol}
                   zoneFromFills={{ low: t.zoneLow, high: t.zoneHigh }}
                   invalidation={existing?.invalidation ?? null}
                   initialDrawings={existing?.drawings ?? []}
+                  tradeFrom={Math.floor(t.openedAt.getTime() / 1000)}
+                  tradeTo={Math.floor(t.closedAt.getTime() / 1000)}
                 />
               </div>
               <Info title="How to read this">
@@ -232,13 +255,18 @@ export default async function TradeDetail({ params, searchParams }: {
                 <br /><br />
                 The red dashed line is your invalidation, set in the form below.
                 <br /><br />
-                <b>Why the buttons stop at an hour.</b> The chart covers hours either side of
-                the trade, so a daily candle over it would be one candle and a weekly one
-                would be part of a candle — neither tells you anything you cannot already see.
-                Where the higher timeframes belong is the question below of which one you read
-                the setup on: that is what makes &ldquo;my daily levels pay and my five-minute
-                ones do not&rdquo; a thing this app can eventually tell you. A button only
-                offers a timeframe when there is enough history loaded to draw it properly.
+                <b>The two groups of timeframe buttons.</b> The minute ones are rolled up
+                from the same bars, so switching is instant and shows exactly the window
+                around the trade — weighted to the left, because the reason for a trade is
+                behind it. The ones after the divider are separate series that reach months
+                and years, so switching to 4H or 1D answers the question the intraday chart
+                cannot: what was the level you were trading, and where did it come from.
+                Those re-centre on the trade rather than showing everything held.
+                <br /><br />
+                A timeframe button only appears when there are enough candles to draw it
+                honestly. On the higher ones, a ladder of fills inside one candle is shown as
+                a single marker at their average price rather than twenty glyphs on the same
+                pixel.
               </Info>
             </>
           ) : (

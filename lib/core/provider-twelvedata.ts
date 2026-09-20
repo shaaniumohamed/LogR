@@ -55,21 +55,30 @@ export function authHeaders(apiKey: string): Record<string, string> {
   return { Authorization: `apikey ${apiKey}`, accept: "application/json" };
 }
 
+/**
+ * `interval` defaults to one minute, which is what the per-day backfill wants.
+ *
+ * The dates are optional because the higher timeframes are asked for
+ * differently: one call with no range returns the most recent five thousand
+ * bars, which at four hours is two years and at a day is thirteen. Naming a
+ * range there would be pure arithmetic with nothing gained.
+ */
 export function buildUrl(
-  { symbol, from, to }: { symbol: string; from: Date; to: Date },
+  { symbol, from, to, interval = "1min", outputsize = RATE.maxBars }:
+  { symbol: string; from?: Date; to?: Date; interval?: string; outputsize?: number },
 ): string {
   const q = new URLSearchParams({
     symbol: providerSymbol(symbol),
-    interval: "1min",
-    start_date: apiStamp(from),
-    end_date: apiStamp(to),
+    interval,
     // Without this the provider answers in the exchange's own zone, which would
     // reintroduce exactly the timezone bug the CSV path goes to such lengths to
     // catch. Asking for UTC means the answer needs no interpretation.
     timezone: "UTC",
-    outputsize: String(RATE.maxBars),
+    outputsize: String(outputsize),
     format: "JSON",
   });
+  if (from) q.set("start_date", apiStamp(from));
+  if (to) q.set("end_date", apiStamp(to));
   return `${TWELVEDATA_BASE}?${q}`;
 }
 

@@ -1,3 +1,5 @@
+const HOUR = 3600_000;
+
 /**
  * How much chart to show around a trade.
  *
@@ -7,15 +9,22 @@
  * wrong at both ends: four hours is generous around a scalp and invisible around
  * a two-day swing.
  *
- * So the window scales with the trade and then stops. Three times the hold on
- * each side, never less than three hours (enough to see the session build), never
- * more than a day and a half (beyond which M1 stops being the right resolution
- * and the payload stops being small).
+ * DELIBERATELY LOPSIDED. The reason for a trade is to the left of it — the level
+ * that formed, the sweep that ran, the session that built the range. What
+ * happened afterwards is worth a glance and not much more. A symmetric window
+ * spends half its bars on the half of the chart that answers the smaller
+ * question, which is why three hours either side still felt cramped: the entry
+ * sat in the middle with barely a session behind it.
+ *
+ * Twelve hours before a scalp is the previous session entire. Anything further
+ * back is a question for the higher timeframes, which are their own series and
+ * reach years rather than hours.
  */
 export function contextWindow(openedAt: Date, closedAt: Date) {
   const holdMs = Math.max(60_000, closedAt.getTime() - openedAt.getTime());
-  const pad = Math.min(Math.max(holdMs * 3, 3 * 3600_000), 36 * 3600_000);
-  return { from: new Date(openedAt.getTime() - pad), to: new Date(closedAt.getTime() + pad) };
+  const before = Math.min(Math.max(holdMs * 6, 12 * HOUR), 36 * HOUR);
+  const after = Math.min(Math.max(holdMs * 2, 1 * HOUR), 12 * HOUR);
+  return { from: new Date(openedAt.getTime() - before), to: new Date(closedAt.getTime() + after) };
 }
 
 /**

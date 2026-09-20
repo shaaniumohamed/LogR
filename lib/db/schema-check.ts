@@ -56,6 +56,7 @@ export const schemaIsCurrent = cache(async (): Promise<boolean> => {
     await Promise.all([
       db.execute(sql`select "drawings" from "trade_annotation" limit 0`),
       db.execute(sql`select 1 from "price_bar" limit 0`),
+      db.execute(sql`select 1 from "price_bar_htf" limit 0`),
     ]);
     current = true;
   } catch {

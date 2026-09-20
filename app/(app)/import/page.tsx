@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { requireContext } from "@/lib/session";
 import { loadTrades } from "@/lib/queries";
-import { loadCoverage, missingTradingDays } from "@/lib/candles";
+import { loadCoverage, loadHtfCoverage, missingTradingDays } from "@/lib/candles";
 import ImportClient from "./import-client";
 import { CandleImport } from "./candle-import";
 import { CoverageList } from "./coverage-list";
 import { FetchMissing } from "./fetch-missing";
+import { FetchHigherTimeframes } from "./fetch-higher";
 
 export const dynamic = "force-dynamic";
 
@@ -71,9 +72,10 @@ async function CandlesTab() {
   const tally = new Map<string, number>();
   for (const t of all) tally.set(t.symbol, (tally.get(t.symbol) ?? 0) + 1);
   const symbol = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "XAUUSD";
-  const [coverage, missing] = await Promise.all([
+  const [coverage, missing, higher] = await Promise.all([
     loadCoverage(),
     missingTradingDays(account.id, symbol),
+    loadHtfCoverage(symbol),
   ]);
 
   return (
@@ -87,6 +89,15 @@ async function CandlesTab() {
       </div>
 
       <FetchMissing days={missing} symbol={symbol} hasKey={!!process.env.TWELVEDATA_API_KEY} />
+
+      <FetchHigherTimeframes
+        symbol={symbol}
+        hasKey={!!process.env.TWELVEDATA_API_KEY}
+        held={higher.map((h) => ({
+          tf: h.tf, bars: h.bars,
+          from: h.from.toISOString().slice(0, 10), to: h.to.toISOString().slice(0, 10),
+        }))}
+      />
 
       {coverage.length > 0 && (
         <div className="card p-5">

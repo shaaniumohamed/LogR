@@ -17,16 +17,20 @@ const CandleChart = dynamic(() => import("@/components/candle-chart").then((m) =
 type Pending = { label: string; kind: "zone" | "level"; first: number | null } | null;
 
 export function ChartPanel({
-  identityHash, bars, fills, timeZone, symbol, zoneFromFills, invalidation, initialDrawings,
+  identityHash, bars, htf, fills, timeZone, symbol, zoneFromFills, invalidation,
+  initialDrawings, tradeFrom, tradeTo,
 }: {
   identityHash: string;
   bars: Candle[];
+  htf: Record<string, Candle[]>;
   fills: Fill[];
   timeZone: string;
   symbol: string;
   zoneFromFills: { low: number; high: number };
   invalidation: number | null;
   initialDrawings: Drawing[];
+  tradeFrom: number;
+  tradeTo: number;
 }) {
   const [drawings, setDrawings] = useState<Drawing[]>(initialDrawings);
   const [pending, setPending] = useState<Pending>(null);
@@ -68,9 +72,10 @@ export function ChartPanel({
   return (
     <div className="space-y-3">
       <CandleChart
-        bars={bars} fills={fills} timeZone={timeZone} symbol={symbol}
+        bars={bars} htf={htf} fills={fills} timeZone={timeZone} symbol={symbol}
         drawings={drawings} drawMode={pending ? pending.kind : null} onPick={handlePick}
         zoneFromFills={zoneFromFills} invalidation={invalidation}
+        tradeFrom={tradeFrom} tradeTo={tradeTo}
       />
 
       {/* One tap arms a label, the next tap (or two, for a zone) places it. No

@@ -220,3 +220,40 @@ export const priceBars = pgTable("price_bar", {
   // WHERE symbol = ? AND t BETWEEN ? AND ? reads one contiguous run of the index.
   primaryKey({ columns: [t.symbol, t.t] }),
 ]);
+
+/**
+ * Higher-timeframe bars: hourly, four-hourly, daily and weekly.
+ *
+ * SEPARATE FROM price_bar, and not a `tf` column added to it, for a reason
+ * about truth rather than convenience. Our one-minute coverage is deliberately
+ * partial — days are fetched when a trade needs them — so a daily candle built
+ * by rolling up a day we only half hold would publish a high and a low that
+ * never happened. These rows are fetched AS daily and weekly bars from the
+ * provider, so they are the day and the week. Mixing two kinds of claim under
+ * one discriminator would invite someone to aggregate across them, and the
+ * result would look perfectly plausible and be wrong.
+ *
+ * They are also tiny and reach far. One call returns five thousand bars, which
+ * at four hours is over two years and at a day is thirteen — so four calls give
+ * every trade in the account its higher-timeframe context, permanently, against
+ * an allowance of eight hundred a day.
+ *
+ * Shared across accounts for the same reason price_bar is: a daily gold candle
+ * is the same candle for everybody, and there is nothing private in it.
+ */
+export const priceBarsHtf = pgTable("price_bar_htf", {
+  symbol: text("symbol").notNull(),
+  /** The provider's own interval name: 1h, 4h, 1day, 1week. */
+  tf: text("tf").notNull(),
+  /** Bar OPEN time, UTC. */
+  t: timestamp("t", { withTimezone: true }).notNull(),
+  open: doublePrecision("open").notNull(),
+  high: doublePrecision("high").notNull(),
+  low: doublePrecision("low").notNull(),
+  close: doublePrecision("close").notNull(),
+  source: text("source").notNull().default("twelvedata"),
+}, (t) => [
+  // Same shape as price_bar's key and for the same reason: a window query for
+  // one symbol at one timeframe reads a single contiguous run of the index.
+  primaryKey({ columns: [t.symbol, t.tf, t.t] }),
+]);
