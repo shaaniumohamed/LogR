@@ -33,13 +33,30 @@ export function providerSymbol(symbol: string): string {
   return /^[A-Z]{6}$/.test(s) ? `${s.slice(0, 3)}/${s.slice(3)}` : s;
 }
 
-/** `YYYY-MM-DD HH:MM:SS`, which is the only datetime format the API accepts. */
+/**
+ * The documented datetime format: `2006-01-02T15:04:05`.
+ *
+ * The T is kept rather than swapped for a space. A space may well be accepted
+ * too, but only the T form appears in the provider's parameter reference, and
+ * an undocumented spelling is a thing that works until the day it does not.
+ */
 function apiStamp(d: Date): string {
-  return d.toISOString().slice(0, 19).replace("T", " ");
+  return d.toISOString().slice(0, 19);
+}
+
+/**
+ * The API key travels in a header, not the query string.
+ *
+ * The provider documents this as the preferred method and it is the safer one:
+ * a URL ends up in error messages, proxy logs and stack traces by default,
+ * whereas a header has to be deliberately printed to leak.
+ */
+export function authHeaders(apiKey: string): Record<string, string> {
+  return { Authorization: `apikey ${apiKey}`, accept: "application/json" };
 }
 
 export function buildUrl(
-  { symbol, from, to, apiKey }: { symbol: string; from: Date; to: Date; apiKey: string },
+  { symbol, from, to }: { symbol: string; from: Date; to: Date },
 ): string {
   const q = new URLSearchParams({
     symbol: providerSymbol(symbol),
@@ -52,7 +69,6 @@ export function buildUrl(
     timezone: "UTC",
     outputsize: String(RATE.maxBars),
     format: "JSON",
-    apikey: apiKey,
   });
   return `${TWELVEDATA_BASE}?${q}`;
 }

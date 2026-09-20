@@ -7,7 +7,7 @@ import { positions, priceBars } from "@/lib/db/schema";
 import { getOrCreateAccount } from "@/lib/account";
 import { normalizeSymbol } from "@/lib/core/symbols";
 import { checkAlignment } from "@/lib/core/parse-candles";
-import { ProviderError, RATE, buildUrl, normalise } from "@/lib/core/provider-twelvedata";
+import { ProviderError, RATE, authHeaders, buildUrl, normalise } from "@/lib/core/provider-twelvedata";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -50,10 +50,9 @@ export async function POST(req: Request) {
   /* ------------------------------------------------------------- fetch */
   let candles;
   try {
-    // The URL carries the API key, so it must never reach a log or a response.
-    const res = await fetch(buildUrl({ symbol, from, to, apiKey }), {
+    const res = await fetch(buildUrl({ symbol, from, to }), {
       signal: AbortSignal.timeout(25_000),
-      headers: { accept: "application/json" },
+      headers: authHeaders(apiKey),
     });
     const body = await res.json().catch(() => null);
     candles = normalise(body);

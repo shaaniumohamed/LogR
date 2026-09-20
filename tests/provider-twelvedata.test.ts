@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ProviderError, buildUrl, normalise, providerSymbol } from "../lib/core/provider-twelvedata";
+import { ProviderError, authHeaders, buildUrl, normalise, providerSymbol } from "../lib/core/provider-twelvedata";
 
 describe("providerSymbol", () => {
   it("writes pairs the way the provider expects", () => {
@@ -21,7 +21,6 @@ describe("buildUrl", () => {
     symbol: "XAUUSD",
     from: new Date(Date.UTC(2026, 8, 18, 0, 0)),
     to: new Date(Date.UTC(2026, 8, 18, 23, 59)),
-    apiKey: "KEY",
   });
   const q = new URL(url).searchParams;
 
@@ -32,9 +31,16 @@ describe("buildUrl", () => {
     expect(q.get("timezone")).toBe("UTC");
   });
 
-  it("formats the dates the way the API accepts", () => {
-    expect(q.get("start_date")).toBe("2026-09-18 00:00:00");
-    expect(q.get("end_date")).toBe("2026-09-18 23:59:00");
+  it("formats the dates the documented way", () => {
+    expect(q.get("start_date")).toBe("2026-09-18T00:00:00");
+    expect(q.get("end_date")).toBe("2026-09-18T23:59:00");
+  });
+
+  it("keeps the API key out of the URL entirely", () => {
+    // A URL reaches logs, error messages and stack traces without anyone
+    // deciding it should; a header has to be printed on purpose.
+    expect(url).not.toContain("apikey");
+    expect(authHeaders("SECRET").Authorization).toBe("apikey SECRET");
   });
 });
 
