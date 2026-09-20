@@ -99,3 +99,43 @@ describe("normalise", () => {
     catch (e) { expect(e).toBeInstanceOf(ProviderError); expect((e as ProviderError).code).toBe(401); }
   });
 });
+
+/**
+ * The exact body the live API returned for XAU/USD, kept verbatim.
+ *
+ * Every other test here asserts against the shape the documentation describes.
+ * This one asserts against the shape the service actually sends, which is the
+ * only claim that cannot be wrong about itself. Spot gold quotes are public
+ * market data and carry nothing about any account.
+ */
+describe("normalise, against a real response", () => {
+  const live = {
+    meta: {
+      symbol: "XAU/USD", interval: "1min",
+      currency_base: "Gold Spot", currency_quote: "US Dollar",
+      type: "Precious Metal",
+    },
+    values: [
+      { datetime: "2026-09-20 07:43:00", open: "4380.04417", high: "4380.21886", low: "4380.0363", close: "4380.0363" },
+      { datetime: "2026-09-20 07:42:00", open: "4380.04417", high: "4380.13152", low: "4379.98369", close: "4380.13152" },
+    ],
+    status: "ok",
+  };
+
+  it("reads it without losing precision or order", () => {
+    const c = normalise(live);
+    expect(c).toHaveLength(2);
+    // Answered newest-first; everything downstream assumes the opposite.
+    expect(new Date(c[0].time * 1000).toISOString()).toBe("2026-09-20T07:42:00.000Z");
+    expect(new Date(c[1].time * 1000).toISOString()).toBe("2026-09-20T07:43:00.000Z");
+    expect(c[0].low).toBe(4379.98369);
+    expect(c[1].high).toBe(4380.21886);
+  });
+
+  it("carries no volume, and does not need any", () => {
+    // The response has no volume field at all. Nothing downstream reads one,
+    // and a parser that required it would reject every bar this service sends.
+    expect(live.values[0]).not.toHaveProperty("volume");
+    expect(() => normalise(live)).not.toThrow();
+  });
+});

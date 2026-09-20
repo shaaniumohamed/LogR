@@ -254,14 +254,21 @@ export interface AlignmentReport {
  * price is almost never inside the wrong bar. Sweeping candidate shifts then
  * recovers the right one without the trader having to know what a zone is.
  *
- * @param tolerance Points of slack. Fills carry the spread and the candle file
- *   is usually bid-only, so a buy can sit a little above the bar's high without
- *   anything being wrong. Gold's spread is a few cents; 0.5 is generous.
+ * @param tolerance Points of slack. Left unset it calibrates itself to the
+ *   instrument: one typical bar's range, never below 0.5. Slack is needed
+ *   because a fill carries the spread and a price source is rarely the same
+ *   aggregate as the broker's own feed, and how much of it is needed depends
+ *   entirely on what is being traded — a fifth of a point is generous on gold
+ *   and meaningless on an index. Being generous costs almost nothing here: a
+ *   file that is hours out has its fills tens of points from the bar, not
+ *   fractions of one.
  */
 export function checkAlignment(
   candles: Candle[],
   fills: Fill[],
-  { tolerance = 0.5, maxShiftHours = 14, stepMinutes = 15 } = {},
+  { tolerance, maxShiftHours = 14, stepMinutes = 15 }: {
+    tolerance?: number; maxShiftHours?: number; stepMinutes?: number;
+  } = {},
 ): AlignmentReport {
   const empty: AlignmentReport = {
     checked: 0, inside: 0, score: null, bestShiftMinutes: 0, bestScore: null,
@@ -272,9 +279,15 @@ export function checkAlignment(
   const byTime = new Map<number, Candle>();
   for (const c of candles) byTime.set(Math.floor(c.time / 60) * 60, c);
 
-  const slack = maxShiftHours * 3600;
-  const first = candles[0].time - slack;
-  const last = candles[candles.length - 1].time + slack;
+  // Median rather than mean: one spike would drag a mean wide enough to start
+  // accepting bars the fill never belonged to.
+  const ranges = candles.map((c) => c.high - c.low).sort((a, b) => a - b);
+  const typicalRange = ranges[Math.floor(ranges.length / 2)] ?? 0;
+  const slack = tolerance ?? Math.max(0.5, typicalRange);
+
+  const window = maxShiftHours * 3600;
+  const first = candles[0].time - window;
+  const last = candles[candles.length - 1].time + window;
   // Only fills the file could plausibly cover; the rest say nothing either way.
   const relevant = fills.filter((f) => f.time >= first && f.time <= last);
   if (!relevant.length) return empty;
@@ -286,7 +299,7 @@ export function checkAlignment(
     for (let i = 0; i < relevant.length; i++) {
       const f = relevant[i];
       const c = byTime.get(Math.floor((f.time - shiftMinutes * 60) / 60) * 60);
-      if (c && f.price >= c.low - tolerance && f.price <= c.high + tolerance) { hit[i] = 1; n++; }
+      if (c && f.price >= c.low - slack && f.price <= c.high + slack) { hit[i] = 1; n++; }
     }
     return { hit, n };
   };
