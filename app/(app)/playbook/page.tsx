@@ -6,7 +6,7 @@ import { requireContext } from "@/lib/session";
 import { loadAnnotations } from "@/lib/actions";
 import { confluenceLabel, feelingLabel, mistakeLabel } from "@/lib/core/taxonomy";
 import { PeriodTabs } from "@/components/period-tabs";
-import { VersusBar } from "@/components/charts";
+import { Sparkline, VersusBar } from "@/components/charts";
 import { Info, Caveat } from "@/components/info";
 import { Card, Empty, Eyebrow, Note, Stat, StatGrid, Verdict, count, money, money0, pct } from "@/components/ui";
 import type { ZoneTrade } from "@/lib/core/types";
@@ -125,6 +125,12 @@ export default async function Playbook({ searchParams }: {
 
           const link = `/trades?${new URLSearchParams({ period, setup }).toString()}`;
 
+          // Oldest first: a line read left to right has to run forwards in time.
+          let running = 0;
+          const curve = [...xs]
+            .sort((a, b) => a.closedAt.getTime() - b.closedAt.getTime())
+            .map((tr) => (running += tr.netPnl));
+
           return (
             <Card key={setup}>
               <div className="flex items-start justify-between gap-3">
@@ -138,8 +144,15 @@ export default async function Playbook({ searchParams }: {
                         : `Not working as it stands. You win ${pct(stats.winRate, 0)} and it needs ${pct(stats.breakEvenWinRate!, 0)} just to break even.`}
                   </Verdict>
                 </div>
-                <div className={`num shrink-0 text-xl font-semibold ${stats.net >= 0 ? "pos" : "neg"}`}>
-                  {money0(stats.net)}
+                <div className="shrink-0 text-right">
+                  <div className={`num text-xl font-semibold ${stats.net >= 0 ? "pos" : "neg"}`}>
+                    {money0(stats.net)}
+                  </div>
+                  {/* The total cannot say whether this setup is getting better or
+                      worse, and that is usually the more useful half. */}
+                  <div className="mt-1 flex justify-end">
+                    <Sparkline values={curve} aria={`Running total for ${setup}, oldest trade first`} />
+                  </div>
                 </div>
               </div>
 

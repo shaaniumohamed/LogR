@@ -285,3 +285,123 @@ export function tagContrast(
     })
     .sort((a, b) => Math.abs(b.lift) - Math.abs(a.lift));
 }
+
+export interface GridCell {
+  day: string;
+  /** First hour of the bucket, in the trader's own clock. */
+  hour: number;
+  trades: number;
+  net: number;
+}
+
+export interface HourGrid {
+  cells: GridCell[];
+  /** Bucket start hours that were actually traded, ascending. */
+  hours: number[];
+  days: string[];
+  bucketHours: number;
+  /** Largest absolute net in any cell, for scaling colour. */
+  scale: number;
+}
+
+const GRID_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+/**
+ * Day of the week against time of day, as a grid.
+ *
+ * Both dimensions already have their own chart and neither can show what this
+ * shows. "Fridays are bad" and "the afternoon is bad" are different claims from
+ * "Friday afternoons are bad", and only the third is a rule anyone can follow.
+ * For someone taking a hundred orders a day across a full session, the
+ * interaction is where the actionable finding lives — a single hour on a single
+ * weekday is a thing you can simply decide not to trade.
+ *
+ * Bucketed rather than hour-by-hour because twenty-four columns on a phone are
+ * fifteen pixels wide, and a cell too small to print its own value in would
+ * leave colour carrying the meaning alone.
+ */
+export function hourWeekdayGrid(
+  trades: ZoneTrade[],
+  timeZone: string,
+  bucketHours = 2,
+): HourGrid {
+  const acc = new Map<string, GridCell>();
+  const hoursUsed = new Set<number>();
+  const daysUsed = new Set<string>();
+
+  for (const t of trades) {
+    const day = weekdayIn(t.openedAt, timeZone);
+    const hour = Math.floor(hourIn(t.openedAt, timeZone) / bucketHours) * bucketHours;
+    const key = `${day}|${hour}`;
+    const cell = acc.get(key) ?? { day, hour, trades: 0, net: 0 };
+    cell.trades += 1;
+    cell.net = round2(cell.net + t.netPnl);
+    acc.set(key, cell);
+    hoursUsed.add(hour);
+    daysUsed.add(day);
+  }
+
+  const cells = [...acc.values()];
+  return {
+    cells,
+    hours: [...hoursUsed].sort((a, b) => a - b),
+    days: GRID_DAYS.filter((d) => daysUsed.has(d)),
+    bucketHours,
+    scale: Math.max(...cells.map((c) => Math.abs(c.net)), 1),
+  };
+}
+
+export interface Drawdown {
+  /** How far the running total fell from its high point, as a positive number. */
+  depth: number;
+  peakAt: string;
+  troughAt: string;
+  /** Null while the account has not yet climbed back above the old high. */
+  recoveredAt: string | null;
+  /** Days from the peak to the trough. */
+  days: number;
+}
+
+/**
+ * The deepest fall from a high point, measured on the daily running total.
+ *
+ * A standard figure and a conspicuous absence here. It answers the question the
+ * equity curve only hints at: how bad has this already been, and how long did it
+ * take. On an account traded without platform stops that is not an abstraction —
+ * it is the size of the hole a mental stop has actually let open once.
+ */
+export function maxDrawdown(days: { date: string; net: number }[]): Drawdown | null {
+  if (days.length < 2) return null;
+
+  let running = 0, peak = 0, peakAt = days[0].date;
+  let best: Drawdown | null = null;
+
+  for (const d of days) {
+    running = round2(running + d.net);
+    if (running >= peak) { peak = running; peakAt = d.date; continue; }
+    const depth = round2(peak - running);
+    if (!best || depth > best.depth) {
+      const from = new Date(`${peakAt}T00:00:00Z`).getTime();
+      const to = new Date(`${d.date}T00:00:00Z`).getTime();
+      best = {
+        depth, peakAt, troughAt: d.date, recoveredAt: null,
+        days: Math.round((to - from) / DAY_MS),
+      };
+    }
+  }
+
+  if (best) {
+    // Walk the same series once more to find the first day after the trough that
+    // climbed back above the old high. Null means it never has, which is the
+    // more important of the two answers and so is never quietly omitted.
+    let run = 0, highWater = 0, passedTrough = false;
+    for (const d of days) {
+      run = round2(run + d.net);
+      if (d.date <= best.peakAt) highWater = Math.max(highWater, run);
+      if (d.date === best.troughAt) { passedTrough = true; continue; }
+      if (passedTrough && run >= highWater) { best.recoveredAt = d.date; break; }
+    }
+  }
+
+  return best;
+}

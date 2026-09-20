@@ -269,3 +269,182 @@ export function DayCurve({ points, format, aria, height = 132 }: {
     </div>
   );
 }
+
+/**
+ * A tiny cumulative line, for a row in a list.
+ *
+ * One series, so no legend and no axis — the surrounding row says what it is.
+ * Its whole job is the shape: an aggregate can say a setup made four hundred
+ * dollars and cannot say whether it made six hundred three months ago and has
+ * been bleeding since, which is the difference between a setup to lean on and
+ * one to retire.
+ */
+export function Sparkline({ values, width = 76, height = 22, aria }: {
+  values: number[]; width?: number; height?: number; aria: string;
+}) {
+  if (values.length < 2) return null;
+  const min = Math.min(0, ...values), max = Math.max(0, ...values);
+  const span = max - min || 1;
+  const X = (i: number) => (i / (values.length - 1)) * width;
+  const Y = (v: number) => height - 1 - ((v - min) / span) * (height - 2);
+  const last = values[values.length - 1];
+  const colour = last >= 0 ? "var(--profit)" : "var(--loss)";
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={aria}
+         width={width} height={height} className="block shrink-0">
+      <line x1={0} y1={Y(0)} x2={width} y2={Y(0)} stroke="var(--ink3)" strokeWidth={1}
+            opacity={0.35} vectorEffect="non-scaling-stroke" />
+      <polyline points={values.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ")}
+                fill="none" stroke={colour} strokeWidth={1.5} strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke" />
+      <circle cx={X(values.length - 1)} cy={Y(last)} r={1.8} fill={colour} />
+    </svg>
+  );
+}
+
+const compact = (n: number) => {
+  const a = Math.abs(n);
+  if (a >= 1000) return `${(a / 1000).toFixed(a >= 10000 ? 0 : 1)}k`;
+  return String(Math.round(a));
+};
+
+export interface HeatCell { row: string; col: number; value: number; count: number; href?: string }
+
+/**
+ * Two categorical dimensions against one value.
+ *
+ * A diverging scale, so the midpoint is the page's own surface rather than a
+ * third hue: zero has to read as nothing, and a colour there would make an
+ * ordinary cell look like a finding. The amount is printed in every cell, which
+ * on a continuous colour scale is not optional — green and red are the pair
+ * most readers with a colour deficiency cannot separate, so the number is what
+ * actually carries the meaning and the colour only helps it be found.
+ *
+ * Scrolls sideways with the labels pinned, rather than shrinking cells to fit.
+ * A grid squeezed to phone width has cells too small to print a number in, and
+ * at that point it is decoration.
+ */
+export function Heatmap({ cells, rows, cols, colLabel, scale, empty = "—" }: {
+  cells: HeatCell[];
+  rows: string[];
+  cols: number[];
+  colLabel: (c: number) => string;
+  /** Largest absolute value anywhere, so every cell is on one scale. */
+  scale: number;
+  empty?: string;
+}) {
+  const at = new Map(cells.map((c) => [`${c.row}|${c.col}`, c]));
+
+  return (
+    <div className="-mx-5 mt-3 overflow-x-auto px-5">
+      <div className="inline-grid gap-0.5"
+           style={{ gridTemplateColumns: `52px repeat(${cols.length}, minmax(40px, 1fr))` }}>
+        <div />
+        {cols.map((c) => (
+          <div key={c} className="num pb-1 text-center text-[9.5px] font-semibold"
+               style={{ color: "var(--ink3)" }}>{colLabel(c)}</div>
+        ))}
+
+        {rows.map((r) => (
+          <div key={r} className="contents">
+            <div className="flex items-center pr-2 text-[11px] font-medium"
+                 style={{ color: "var(--ink2)" }}>{r.slice(0, 3)}</div>
+            {cols.map((c) => {
+              const cell = at.get(`${r}|${c}`);
+              if (!cell) {
+                return (
+                  <div key={c} className="grid h-9 place-items-center rounded-[5px] text-[10px]"
+                       style={{ background: "var(--s3)", color: "var(--ink3)", opacity: 0.5 }}>
+                    {empty}
+                  </div>
+                );
+              }
+              const strength = Math.round(14 + Math.min(1, Math.abs(cell.value) / scale) * 56);
+              const bg = cell.value === 0
+                ? "var(--s3)"
+                : `color-mix(in srgb, var(${cell.value > 0 ? "--profit" : "--loss"}) ${strength}%, var(--s1))`;
+              const body = (
+                <span className={`num text-[10.5px] font-bold ${cell.value > 0 ? "pos" : cell.value < 0 ? "neg" : ""}`}>
+                  {cell.value > 0 ? "+" : cell.value < 0 ? "−" : ""}{compact(cell.value)}
+                </span>
+              );
+              const style = { background: bg, border: "1px solid var(--line)" };
+              const cls = "grid h-9 place-items-center rounded-[5px]";
+              const title = `${r} ${colLabel(c)} · ${cell.count} ${cell.count === 1 ? "trade" : "trades"}`;
+
+              return cell.href
+                ? <Link key={c} href={cell.href} scroll={false} className={cls} style={style} title={title}>{body}</Link>
+                : <div key={c} className={cls} style={style} title={title}>{body}</div>;
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export interface HistogramBin {
+  from: number; to: number; count: number; total: number; overflow: boolean;
+}
+
+/**
+ * How results are spread, rather than what they average to.
+ *
+ * Built for one question that the averages elsewhere in this app structurally
+ * cannot answer: when it goes wrong, how wrong, and how often. Zero is a bin
+ * edge and is drawn as a solid rule, so no bar ever mixes money made with money
+ * lost. The two end bins collect everything past the second and ninety-eighth
+ * percentile and are outlined rather than filled, because they mean "and worse"
+ * rather than a range — and they are labelled, since they are the bars a reader
+ * came for.
+ */
+export function Histogram({ bins, format, height = 128 }: {
+  bins: HistogramBin[];
+  format: (v: number) => string;
+  height?: number;
+}) {
+  const shown = bins.filter((b, i) => b.count > 0 || (i > 0 && i < bins.length - 1));
+  if (shown.length < 2) return null;
+  const tallest = Math.max(...shown.map((b) => b.count), 1);
+  const zeroIndex = shown.findIndex((b) => b.from >= 0);
+
+  return (
+    <div className="mt-3">
+      <div className="relative flex items-end gap-[2px]" style={{ height }}>
+        {shown.map((b, i) => {
+          const h = Math.max(b.count > 0 ? 3 : 0, (b.count / tallest) * (height - 18));
+          const win = b.from >= 0;
+          const colour = win ? "var(--profit)" : "var(--loss)";
+          const label = b.overflow
+            ? `${win ? "better than" : "worse than"} ${format(win ? b.from : b.to)}`
+            : `${format(b.from)} to ${format(b.to)}`;
+          return (
+            <div key={i} className="relative flex flex-1 flex-col items-center justify-end"
+                 style={{ height }} title={`${label} · ${b.count} ${b.count === 1 ? "trade" : "trades"} · ${format(b.total)} in total`}>
+              {b.overflow && b.count > 0 && (
+                <span className="num pb-0.5 text-[9.5px] font-bold" style={{ color: colour }}>{b.count}</span>
+              )}
+              <div className="w-full rounded-t-[3px]"
+                   style={b.overflow
+                     ? { height: h, border: `1.5px solid ${colour}`, background: `color-mix(in srgb, ${colour} 16%, transparent)` }
+                     : { height: h, background: colour }} />
+            </div>
+          );
+        })}
+        {zeroIndex > 0 && (
+          <span className="pointer-events-none absolute inset-y-0"
+                style={{
+                  left: `calc(${(zeroIndex / shown.length) * 100}% - 1px)`,
+                  width: 1, background: "var(--ink3)", opacity: 0.55,
+                }} />
+        )}
+      </div>
+      <div className="mt-1.5 flex justify-between text-[10.5px]" style={{ color: "var(--ink3)" }}>
+        <span className="num">{format(shown[0].to)} and worse</span>
+        <span>losses ← 0 → wins</span>
+        <span className="num">{format(shown[shown.length - 1].from)} and better</span>
+      </div>
+    </div>
+  );
+}

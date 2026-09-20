@@ -42,6 +42,8 @@ const SORTS = [
 ] as const;
 type SortKey = (typeof SORTS)[number]["value"];
 
+const pad = (h: number) => String(h % 24).padStart(2, "0");
+
 /** Plain words for how the trade ended — "so" and "tp" mean nothing to a reader. */
 function endedHow(t: ZoneTrade): string | null {
   if (t.closeReasons.includes("so")) return "Margin call";
@@ -133,7 +135,20 @@ export default async function Trades({ searchParams }: {
   const sess = oneOf(sp.session, SESSIONS);
   const hold = oneOf(sp.hold, HOLDS);
   const dir = oneOf(sp.direction, DIRECTIONS.map((d) => d.value));
-  const hour = /^\d{1,2}$/.test(sp.hour ?? "") && Number(sp.hour) < 24 ? String(Number(sp.hour)) : null;
+  /*
+   * An hour, or a run of them.
+   *
+   * A single number is what the chip row offers. A range like "14-15" is what
+   * the day-and-hour grid links with, because its cells cover two hours at a
+   * time on a narrow screen and sending only half a cell's trades would be a
+   * link that quietly lies about what it opens.
+   */
+  const hourMatch = /^(\d{1,2})(?:-(\d{1,2}))?$/.exec(sp.hour ?? "");
+  const hourFrom = hourMatch ? Number(hourMatch[1]) : null;
+  const hourTo = hourMatch ? Number(hourMatch[2] ?? hourMatch[1]) : null;
+  const hour = hourFrom !== null && hourTo !== null && hourFrom < 24 && hourTo < 24 && hourTo >= hourFrom
+    ? (hourTo === hourFrom ? String(hourFrom) : `${hourFrom}-${hourTo}`)
+    : null;
   const month = /^\d{4}-\d{2}$/.test(sp.month ?? "") ? sp.month! : null;
   const sort = (oneOf(sp.sort, SORTS.map((s) => s.value)) ?? "recent") as SortKey;
 
@@ -155,7 +170,12 @@ export default async function Trades({ searchParams }: {
   if (shape === "nostop") filtered = filtered.filter((t) => !t.hadStop);
   if (day) filtered = filtered.filter((t) => weekdayIn(t.openedAt, timeZone) === day);
   if (sess) filtered = filtered.filter((t) => sessionOf(t.openedAt) === sess);
-  if (hour) filtered = filtered.filter((t) => hourIn(t.openedAt, timeZone) === Number(hour));
+  if (hour) {
+    filtered = filtered.filter((t) => {
+      const h = hourIn(t.openedAt, timeZone);
+      return h >= hourFrom! && h <= hourTo!;
+    });
+  }
   if (hold) filtered = filtered.filter((t) => holdBucket(t.holdMinutes) === hold);
   if (dir) filtered = filtered.filter((t) => t.direction === dir);
   if (month) filtered = filtered.filter((t) => localDayKey(t.closedAt, timeZone).startsWith(month));
@@ -212,7 +232,14 @@ export default async function Trades({ searchParams }: {
     { key: "session", label: "Session", active: sess,
       options: SESSIONS.map((x) => ({ value: x, label: x })) },
     { key: "hour", label: "Hour you opened it", active: hour,
-      options: hoursUsed.map((h) => ({ value: String(h), label: `${String(h).padStart(2, "0")}:00` })) },
+      options: [
+        // A range only ever arrives from the grid, so it is added to the list
+        // just so the pill above can name it in words rather than echo "14-15".
+        ...(hour && hour.includes("-")
+          ? [{ value: hour, label: `${pad(hourFrom!)}:00 – ${pad(hourTo! + 1)}:00` }]
+          : []),
+        ...hoursUsed.map((h) => ({ value: String(h), label: `${pad(h)}:00` })),
+      ] },
     { key: "hold", label: "How long you held", active: hold,
       options: HOLDS.map((h) => ({ value: h, label: h })) },
     ...(monthsUsed.length > 1

@@ -3,13 +3,15 @@ import { computeStats, segmentBy, hourIn } from "@/lib/core/metrics";
 import { loadAnnotations } from "@/lib/actions";
 import { FEELINGS, MISTAKES, confluenceLabel, feelingLabel, isGoodFeeling, mistakeLabel } from "@/lib/core/taxonomy";
 import { Info, Caveat } from "@/components/info";
-import { holdBucket, sessionOf, weekdayIn, counterfactual, heldOverWeekend } from "@/lib/core/analysis";
+import { holdBucket, hourWeekdayGrid, sessionOf, weekdayIn, counterfactual, heldOverWeekend } from "@/lib/core/analysis";
+import { distribution } from "@/lib/core/distribution";
+import { tiltProfile } from "@/lib/core/tilt";
 import { clusterLevels, type Mark } from "@/lib/core/levels";
 import { loadExits, loadTrades, resolvePeriod } from "@/lib/queries";
 import { requireContext } from "@/lib/session";
 import { PeriodTabs } from "@/components/period-tabs";
 import { zoneName } from "@/lib/timezones";
-import { BarChart, type BarRow } from "@/components/charts";
+import { BarChart, Heatmap, Histogram, type BarRow } from "@/components/charts";
 import { Card, Empty, Eyebrow, Note, Stat, StatGrid, Verdict, count, money, money0, pct } from "@/components/ui";
 import type { ZoneTrade } from "@/lib/core/types";
 
@@ -58,6 +60,49 @@ function Section({ title, verdict, rows, note, info }: {
       {note && <Note>{note}</Note>}
       {info && <Info>{info}</Info>}
     </Card>
+  );
+}
+
+/**
+ * One measurement, after a win against after a loss.
+ *
+ * Two bars on a shared scale rather than three numbers in a row, because the
+ * only thing being asked is which is bigger and by how much — and `worseWhen`
+ * decides which direction earns the alarming colour, since re-entering sooner
+ * is the bad direction for a delay and later is the bad direction for a result.
+ */
+function TiltRow({ label, win, loss, big, format, worseWhen }: {
+  label: string; win: number; loss: number; big: number | null;
+  format: (v: number) => string; worseWhen: "higher" | "lower";
+}) {
+  const rows = [
+    { name: "after a win", v: win },
+    { name: "after a loss", v: loss },
+    ...(big !== null ? [{ name: "after a big loss", v: big }] : []),
+  ];
+  const max = Math.max(...rows.map((r) => Math.abs(r.v)), 0.0001);
+  const worse = worseWhen === "higher" ? loss > win * 1.1 : loss < win * 0.9;
+
+  return (
+    <div>
+      <div className="text-[12.5px] font-semibold">{label}</div>
+      <div className="mt-1.5 space-y-1">
+        {rows.map((r, i) => (
+          <div key={r.name} className="flex items-center gap-2">
+            <span className="w-[92px] shrink-0 text-[11px]" style={{ color: "var(--ink3)" }}>{r.name}</span>
+            <div className="h-3 flex-1">
+              <div className="h-full rounded-[3px]"
+                   style={{
+                     width: `${(Math.abs(r.v) / max) * 100}%`,
+                     background: i === 0 ? "var(--ink3)" : worse ? "var(--loss)" : "var(--c1)",
+                     opacity: i === 2 ? 0.75 : 1,
+                   }} />
+            </div>
+            <span className="num w-[70px] shrink-0 text-right text-[12px] font-semibold">{format(r.v)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -196,6 +241,47 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
       tradeId: t.id, low: d.low, high: d.high, label: d.label, netPnl: t.netPnl, at: t.closedAt,
     })));
   const levels = clusterLevels(marks).filter((l) => l.trades >= 3).slice(0, 8);
+
+  /*
+   * Day of the week against time of day.
+   *
+   * Both already have a chart and neither can say what this says. "Fridays are
+   * bad" and "the afternoon is bad" are different claims from "Friday
+   * afternoons are bad", and only the third is something anyone can act on.
+   * Bucketed to two hours when the trading day is wide, because a cell too
+   * small to print its own amount in would leave colour carrying the meaning
+   * alone, and green against red is the pair most readers with a colour
+   * deficiency cannot separate.
+   */
+  const distinctHours = new Set(trades.map((t) => hourIn(t.openedAt, timeZone))).size;
+  const grid = hourWeekdayGrid(trades, timeZone, distinctHours <= 12 ? 1 : 2);
+  const gridCells = grid.cells.map((c) => ({
+    row: c.day, col: c.hour, value: c.net, count: c.trades,
+    href: drill(period, {
+      day: c.day,
+      hour: grid.bucketHours === 1 ? String(c.hour) : `${c.hour}-${c.hour + grid.bucketHours - 1}`,
+    }),
+  }));
+  const worstCell = grid.cells.length ? grid.cells.reduce((a, b) => (b.net < a.net ? b : a)) : null;
+  const bestCell = grid.cells.length ? grid.cells.reduce((a, b) => (b.net > a.net ? b : a)) : null;
+  const gridHour = (h: number) => `${String(h).padStart(2, "0")}:00`;
+
+  /*
+   * The shape of the results, which every average on this page is blind to.
+   * It matters most here of all places: this account is traded without a
+   * platform stop, and the only thing that can show what that costs is the left
+   * tail — which is exactly what a mean of the losses hides.
+   */
+  const dist = distribution(trades.map((t) => t.netPnl));
+
+  /*
+   * What happens immediately after a loss. Needs nothing written down: tilt is
+   * a behaviour, and re-entering faster and larger than usual leaves its marks
+   * in the timestamps and volumes the broker already reported.
+   */
+  const tilt = tiltProfile(trades, timeZone);
+  const faster = tilt ? tilt.afterWin.gapMinutes - tilt.afterLoss.gapMinutes : 0;
+  const bigger = tilt && tilt.afterWin.lots > 0 ? tilt.afterLoss.lots / tilt.afterWin.lots - 1 : 0;
 
   const overWeekend = trades.filter((t) => heldOverWeekend(t.openedAt, t.closedAt));
   const weekendStats = computeStats(overWeekend);
@@ -430,6 +516,126 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           </>
         }
       />
+
+      {tilt && (
+        <Card>
+          <Eyebrow>What you do after a loss</Eyebrow>
+          <Verdict>
+            {faster > 1 || bigger > 0.1
+              ? `After a loss you are back in ${faster > 1 ? `${Math.round(faster)} minutes sooner` : "about as quickly"}${bigger > 0.1 ? ` and ${Math.round(bigger * 100)}% larger` : ""} than after a win.`
+              : "After a loss you re-enter at about the same speed and size as after a win — which is the answer you want."}
+          </Verdict>
+
+          <div className="mt-4 space-y-3">
+            <TiltRow label="Minutes before the next trade"
+                     win={tilt.afterWin.gapMinutes} loss={tilt.afterLoss.gapMinutes}
+                     big={tilt.afterBigLoss.n ? tilt.afterBigLoss.gapMinutes : null}
+                     format={(v) => `${v < 1 ? "<1" : Math.round(v)} min`}
+                     worseWhen="lower" />
+            <TiltRow label="Size of the next trade"
+                     win={tilt.afterWin.lots} loss={tilt.afterLoss.lots}
+                     big={tilt.afterBigLoss.n ? tilt.afterBigLoss.lots : null}
+                     format={(v) => `${v.toFixed(2)} lots`}
+                     worseWhen="higher" />
+            <TiltRow label="What the next trade made"
+                     win={tilt.afterWin.result} loss={tilt.afterLoss.result}
+                     big={tilt.afterBigLoss.n ? tilt.afterBigLoss.result : null}
+                     format={(v) => money(v)}
+                     worseWhen="lower" />
+          </div>
+
+          <Note>
+            Measured on {count(tilt.afterLoss.n)} that followed a loss and {count(tilt.afterWin.n)} that
+            followed a win
+            {tilt.afterBigLoss.n
+              ? `, and ${count(tilt.afterBigLoss.n)} that followed a loss worse than ${money0(tilt.bigLossAt)}`
+              : ""}.
+          </Note>
+
+          <Info title="Why this needs nothing written down">
+            Tilt and revenge trading are usually treated as feelings you have to remember and
+            tag honestly a week later, which is exactly when memory is least reliable. But they
+            are behaviours before they are feelings, and a behaviour leaves marks: re-entering
+            faster than usual, with more size than usual, straight after losing money. Both
+            halves of that are a timestamp and a volume your broker already reported.
+            <br /><br />
+            Only trades on the <b>same day</b> are counted. The gap to tomorrow morning measures
+            when the market opened, not how you reacted.
+          </Info>
+          <Caveat>
+            A difference here is a habit, not a verdict. The trades after a loss may simply have
+            been taken in the conditions that produced the loss — a fast market makes both the
+            loss and the quick re-entry. The test that settles it is deliberate: after your next
+            loss, stand up for five minutes, and see whether the number moves.
+          </Caveat>
+        </Card>
+      )}
+
+      {dist && (
+        <Card>
+          <Eyebrow>The size of your results</Eyebrow>
+          <Verdict>
+            {dist.tailShareOfGross !== null && dist.tailShareOfGross > 0.15
+              ? `Your worst ${dist.tailCount} trades cost ${money0(Math.abs(dist.tailTotal))} — ${pct(dist.tailShareOfGross, 0)} of everything your winners made.`
+              : `Your typical trade lands at ${money(dist.median)}, and your worst ${dist.tailCount} came to ${money0(dist.tailTotal)}.`}
+          </Verdict>
+          <Histogram bins={dist.bins} format={(v) => money0(v)} />
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {([["Typical trade", money(dist.median), undefined],
+               ["Average trade", money(dist.mean), "pulled by the tails"],
+               [`Worst ${dist.tailCount}`, money0(dist.tailTotal), `each beyond ${money0(dist.tailAt)}`],
+               [`Best ${dist.topCount}`, money0(dist.topTotal), undefined]] as const).map(([k, v, sub]) => (
+              <div key={k}>
+                <div className="text-[11px]" style={{ color: "var(--ink3)" }}>{k}</div>
+                <div className="num text-[15px] font-semibold">{v}</div>
+                {sub && <div className="text-[10.5px]" style={{ color: "var(--ink3)" }}>{sub}</div>}
+              </div>
+            ))}
+          </div>
+          <Info title="Why the shape matters more than the average here">
+            The headline number on the Overview — the win rate your payoff ratio needs to break
+            even — is built from an <i>average</i> win and an <i>average</i> loss. An average is
+            the one statistic that cannot see a tail. Ninety-eight small losses and two
+            catastrophic ones average out to something that looks survivable and is not.
+            <br /><br />
+            That is the question a mental stop raises and nothing else in this app answers: when
+            it goes wrong, how wrong does it go. The two outlined bars at the ends collect
+            everything past the extremes, so a single enormous trade cannot squash the rest of
+            the chart into one column — the outliers are counted, not hidden.
+            <br /><br />
+            The gap between your typical trade and your average trade is itself the measurement:
+            the wider it is, the more of your result lives in a handful of trades.
+          </Info>
+        </Card>
+      )}
+
+      {grid.cells.length >= 6 && grid.days.length >= 2 && (
+        <Card>
+          <Eyebrow>Day against hour · {zoneName(timeZone)}</Eyebrow>
+          <Verdict>
+            {worstCell && bestCell && worstCell.net < 0
+              ? `${worstCell.day} at ${gridHour(worstCell.hour)} is your worst combination, at ${money0(worstCell.net)} across ${count(worstCell.trades)}.`
+              : "Every day of the week against every hour you trade it."}
+          </Verdict>
+          <Heatmap cells={gridCells} rows={grid.days} cols={grid.hours}
+                   colLabel={(h) => (grid.bucketHours === 1 ? gridHour(h) : String(h).padStart(2, "0"))}
+                   scale={grid.scale} />
+          <Note>
+            Tap any square to read the trades in it. Amounts are printed in every square, so the
+            colour only helps you find them.
+          </Note>
+          <Info title="Why this is worth more than the two charts below it">
+            &ldquo;Fridays are bad&rdquo; and &ldquo;the afternoon is bad&rdquo; are different
+            claims from &ldquo;Friday afternoons are bad&rdquo;, and only the third is a rule you
+            can follow — a single hour on a single weekday is a thing you can simply decide not
+            to trade. Averaging either dimension on its own hides the other.
+            <br /><br />
+            Be careful with the squares holding only a few trades: at this resolution the sample
+            in any one cell is small, and one bad afternoon can colour a square dark red. Tap it
+            and count before believing it.
+          </Info>
+        </Card>
+      )}
 
       <Section
         title={`Time of day · ${zoneName(timeZone)}`}

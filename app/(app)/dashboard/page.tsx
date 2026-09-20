@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { computeStats, costPicture, pointValuePerLot } from "@/lib/core/metrics";
 import { spreadRange } from "@/lib/core/instrument";
-import { byHourLocal, byLocalDay, monthKey, weekKey } from "@/lib/core/analysis";
+import { byHourLocal, byLocalDay, maxDrawdown, monthKey, weekKey } from "@/lib/core/analysis";
 import { localDayKey } from "@/lib/core/metrics";
 import { loadTrades, recentSlice, resolvePeriod } from "@/lib/queries";
 import { PeriodTabs } from "@/components/period-tabs";
@@ -66,6 +66,9 @@ export default async function Dashboard({ searchParams }: {
     );
   }
 
+  const fmtDay = (d: string) =>
+    new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+
   const s = computeStats(trades);
 
   /*
@@ -101,6 +104,11 @@ export default async function Dashboard({ searchParams }: {
   let running = 0;
   const curve = days.map((d) => (running += d.net));
   const upDays = days.filter((d) => d.net > 0).length;
+
+  // The deepest fall from a high point. Standard everywhere else and missing
+  // here, and on an account traded without platform stops it is not an
+  // abstraction — it is the size of the hole a mental stop has let open once.
+  const dd = maxDrawdown(days);
 
   const weeks = trendRows(all, (t) => weekKey(t.closedAt, timeZone),
     (k) => `w/c ${new Date(`${k}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })}`, 8);
@@ -159,6 +167,38 @@ export default async function Dashboard({ searchParams }: {
         <Stat label="Days up" value={`${upDays}/${days.length}`}
               sub={days.length ? pct(upDays / days.length, 0) : undefined} />
       </StatGrid>
+
+      {dd && (
+        <Card>
+          <Eyebrow>Worst run</Eyebrow>
+          <Verdict>
+            You once gave back <b className="neg">{money0(dd.depth)}</b> from a high point, over{" "}
+            {dd.days === 0 ? "a single day" : `${dd.days} days`}
+            {dd.recoveredAt
+              ? ", and climbed back above it afterwards."
+              : " — and the account has not been back above that high since."}
+          </Verdict>
+          <div className="mt-3 grid grid-cols-3 gap-3 text-[13px]">
+            {([["High point", fmtDay(dd.peakAt)], ["Low point", fmtDay(dd.troughAt)],
+               ["Back above it", dd.recoveredAt ? fmtDay(dd.recoveredAt) : "not yet"]] as const).map(([k, v]) => (
+              <div key={k}>
+                <div className="text-[11px]" style={{ color: "var(--ink3)" }}>{k}</div>
+                <div className="font-semibold">{v}</div>
+              </div>
+            ))}
+          </div>
+          <Info title="Why this and not just the total">
+            A running total that ends in profit can have spent a month deeply underwater on the
+            way, and that month is where accounts actually get closed — not because the strategy
+            stopped working, but because nobody had agreed in advance how much of a hole they
+            were willing to sit in.
+            <br /><br />
+            Knowing the number makes it a decision rather than a surprise. If the figure above
+            is one you would not take again, the size to change is the size you trade now, not
+            the one you traded then.
+          </Info>
+        </Card>
+      )}
 
       {showForm && (
         <Card>
