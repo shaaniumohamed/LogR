@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { tradeAnnotations, users } from "@/lib/db/schema";
 import type { Drawing } from "@/lib/core/types";
 import { getOrCreateAccount } from "@/lib/account";
+import { readOrDegrade } from "@/lib/db/schema-check";
 
 /**
  * Annotations are keyed to identityHash, never to a row id, so re-deriving zone
@@ -106,16 +107,19 @@ export async function saveDrawings(identityHash: string, drawings: Drawing[]) {
 }
 
 export async function loadAnnotations(accountId: string) {
-  return db.select().from(tradeAnnotations).where(eq(tradeAnnotations.accountId, accountId));
+  return readOrDegrade(
+    () => db.select().from(tradeAnnotations).where(eq(tradeAnnotations.accountId, accountId)),
+    [],
+  );
 }
 
 export async function loadAnnotation(accountId: string, identityHash: string) {
-  return db.query.tradeAnnotations.findFirst({
+  return readOrDegrade(() => db.query.tradeAnnotations.findFirst({
     where: and(
       eq(tradeAnnotations.accountId, accountId),
       eq(tradeAnnotations.identityHash, identityHash)
     ),
-  });
+  }), undefined);
 }
 
 /**

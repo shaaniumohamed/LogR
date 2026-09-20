@@ -5,6 +5,7 @@ import { auth, signOut } from "@/auth";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { ZoneSync } from "@/components/zone-sync";
+import { schemaIsCurrent } from "@/lib/db/schema-check";
 
 /**
  * Bottom tab bar on phones, inline nav on desktop. The journal's main session is
@@ -25,6 +26,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!session?.user) redirect("/signin");
   const me = await db.query.users.findFirst({ where: eq(users.id, session.user.id!) });
   const savedZone = me?.timeZone ?? "UTC";
+  // Deploying is one step and migrating is another, and nothing links them. When
+  // they come apart, say so here rather than letting a page fail with a digest.
+  const schemaOk = await schemaIsCurrent();
 
   return (
     <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-4">
@@ -42,6 +46,21 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       <main className="flex-1 py-5 pb-28 sm:pb-8">
         <ZoneSync saved={savedZone} />
+        {!schemaOk && (
+          <div className="card mb-4 p-4" style={{ borderColor: "var(--warn)" }}>
+            <div className="eyebrow" style={{ color: "var(--warn)" }}>Database is behind the app</div>
+            <p className="mt-2 text-[13px] leading-relaxed" style={{ color: "var(--ink2)" }}>
+              Your trades are safe and everything below still works. Chart mark-up and price
+              history are switched off until the database has the tables they need.
+            </p>
+            <code className="num mt-2 block rounded-lg p-2.5 text-[12px]" style={{ background: "var(--s3)" }}>
+              git pull &amp;&amp; npm run db:push
+            </code>
+            <p className="mt-2 text-[11px]" style={{ color: "var(--ink3)" }}>
+              Run it wherever you keep the code. No redeploy needed — reload this page after.
+            </p>
+          </div>
+        )}
         {children}
       </main>
 

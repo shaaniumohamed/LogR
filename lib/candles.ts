@@ -4,12 +4,17 @@ import { positions, priceBars } from "@/lib/db/schema";
 import type { Candle } from "@/lib/core/parse-candles";
 import { normalizeSymbol } from "@/lib/core/symbols";
 import { contextWindow, fetchWindow } from "@/lib/core/window";
+import { readOrDegrade } from "@/lib/db/schema-check";
 
 // Re-exported so callers have one place to reach for anything candle-shaped.
 export { normalizeSymbol, contextWindow, fetchWindow };
 
 /** One-minute bars for a window, oldest first. Aggregation to M5/M15 happens on the client. */
 export async function loadBars(symbol: string, from: Date, to: Date): Promise<Candle[]> {
+  return readOrDegrade(() => loadBarsUnguarded(symbol, from, to), []);
+}
+
+async function loadBarsUnguarded(symbol: string, from: Date, to: Date): Promise<Candle[]> {
   const rows = await db.select().from(priceBars)
     .where(and(eq(priceBars.symbol, normalizeSymbol(symbol)), between(priceBars.t, from, to)))
     .orderBy(asc(priceBars.t));
@@ -23,6 +28,10 @@ export interface Coverage { symbol: string; bars: number; from: Date; to: Date }
 
 /** What price history exists, for the import screen and the empty states. */
 export async function loadCoverage(): Promise<Coverage[]> {
+  return readOrDegrade(loadCoverageUnguarded, []);
+}
+
+async function loadCoverageUnguarded(): Promise<Coverage[]> {
   const rows = await db
     .select({
       symbol: priceBars.symbol,
@@ -44,6 +53,7 @@ export async function loadCoverage(): Promise<Coverage[]> {
  * than drawing an empty chart. One cheap indexed existence check.
  */
 export async function hasBarsAround(symbol: string, at: Date): Promise<boolean> {
+  return readOrDegrade(async () => {
   const halfDay = 12 * 3600_000;
   const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(priceBars)
     .where(and(
@@ -51,6 +61,7 @@ export async function hasBarsAround(symbol: string, at: Date): Promise<boolean> 
       between(priceBars.t, new Date(at.getTime() - halfDay), new Date(at.getTime() + halfDay)),
     ));
   return (row?.n ?? 0) > 0;
+  }, false);
 }
 
 export interface MissingDay {
@@ -70,6 +81,10 @@ export interface MissingDay {
  * twelve trades that day cannot be charted.
  */
 export async function missingTradingDays(accountId: string, symbol: string): Promise<MissingDay[]> {
+  return readOrDegrade(() => missingTradingDaysUnguarded(accountId, symbol), []);
+}
+
+async function missingTradingDaysUnguarded(accountId: string, symbol: string): Promise<MissingDay[]> {
   const sym = normalizeSymbol(symbol);
   const dayExpr = sql<string>`to_char(date_trunc('day', ${positions.openedAt} AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`;
   const rows = await db
