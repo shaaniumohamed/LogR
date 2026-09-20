@@ -243,6 +243,27 @@ export interface AlignmentReport {
    * trades simply never overlap, which is not a disagreement about anything.
    */
   evidence: number;
+  /** A typical bar's high-to-low, which is the scale everything else is judged against. */
+  typicalRange: number;
+  /**
+   * A constant price difference between the two sources that would account for
+   * the fills still missing, and what it would score. Null when no offset
+   * within a sane bound helps.
+   *
+   * Two feeds of the same instrument are not the same book: a broker fills from
+   * its own liquidity and a data vendor publishes a consolidated aggregate, so
+   * one can sit persistently a little above or below the other. That is a
+   * different thing from the wrong instrument, and only one of them is a reason
+   * to throw the candles away.
+   */
+  priceOffset: number | null;
+  priceOffsetScore: number | null;
+  /**
+   * Median signed distance outside its bar for the fills that missed. Positive
+   * means the fills sit above the candles. Reported so a failure says what is
+   * actually wrong instead of inviting another guess.
+   */
+  medianMiss: number | null;
 }
 
 /**
@@ -277,7 +298,8 @@ export function checkAlignment(
 ): AlignmentReport {
   const empty: AlignmentReport = {
     checked: 0, inside: 0, score: null, bestShiftMinutes: 0, bestScore: null,
-    dstLikely: false, combinedScore: null, evidence: 0,
+    dstLikely: false, combinedScore: null, evidence: 0, typicalRange: 0,
+    priceOffset: null, priceOffsetScore: null, medianMiss: null,
   };
   if (!candles.length || !fills.length) return empty;
 
@@ -289,6 +311,37 @@ export function checkAlignment(
   const ranges = candles.map((c) => c.high - c.low).sort((a, b) => a - b);
   const typicalRange = ranges[Math.floor(ranges.length / 2)] ?? 0;
   const slack = tolerance ?? Math.max(0.5, typicalRange);
+
+  /**
+   * The bar a fill happened in, plus the minute either side.
+   *
+   * Two effects both put a perfectly good fill outside its own bar, and both
+   * land hardest exactly where a scalper works — the fast minutes.
+   *
+   * A broker's clock and a data vendor's need differ by only a second for a
+   * fill at 07:43:59 to belong, defensibly, to either minute. And a
+   * consolidated aggregate is not the broker's book: it reports a narrower
+   * high-to-low than the market truly traded through, because it never saw
+   * every tick. A fill at the real extreme of a violent minute then sits
+   * outside a bar that simply under-reports it.
+   *
+   * The neighbouring minutes contain that movement, so asking "was price
+   * anywhere near here, around then" answers the question actually being
+   * asked. It costs almost nothing against what this check exists to catch: a
+   * wrong time zone puts fills hours and tens of points away, and a wrong
+   * instrument puts them on another scale entirely. One minute either side
+   * does not reach either.
+   */
+  const neighbourhood = (key: number) => {
+    let low = Infinity, high = -Infinity;
+    for (let d = -60; d <= 60; d += 60) {
+      const c = byTime.get(key + d);
+      if (!c) continue;
+      if (c.low < low) low = c.low;
+      if (c.high > high) high = c.high;
+    }
+    return high >= low ? { low, high } : null;
+  };
 
   const window = maxShiftHours * 3600;
   const first = candles[0].time - window;
@@ -316,10 +369,11 @@ export function checkAlignment(
     let n = 0, reach = 0;
     for (let i = 0; i < relevant.length; i++) {
       const f = relevant[i];
-      const c = byTime.get(Math.floor((f.time - shiftMinutes * 60) / 60) * 60);
-      if (!c) continue;
+      const key = Math.floor((f.time - shiftMinutes * 60) / 60) * 60;
+      if (!byTime.has(key)) continue;
       seen[i] = 1; reach++;
-      if (f.price >= c.low - slack && f.price <= c.high + slack) { hit[i] = 1; n++; }
+      const band = neighbourhood(key);
+      if (band && f.price >= band.low - slack && f.price <= band.high + slack) { hit[i] = 1; n++; }
     }
     return { hit, seen, n, reach };
   };
@@ -375,6 +429,55 @@ export function checkAlignment(
   const bestScore = rate(best);
   const dstLikely = bestScore < 0.9 && combined !== null && combined >= 0.9;
 
+  /* ------------------------------------------------- how far, and which way */
+
+  const median = (xs: number[]) =>
+    xs.length ? xs.slice().sort((a, b) => a - b)[Math.floor(xs.length / 2)] : null;
+
+  /** Signed distance outside the bar at the best shift; zero when inside. */
+  const gaps: number[] = [];
+  for (const f of relevant) {
+    const key = Math.floor((f.time - bestShift * 60) / 60) * 60;
+    const band = byTime.has(key) ? neighbourhood(key) : null;
+    if (!band) continue;
+    if (f.price > band.high + slack) gaps.push(f.price - band.high);
+    else if (f.price < band.low - slack) gaps.push(f.price - band.low);
+  }
+  const medianMiss = median(gaps);
+
+  /*
+   * Sweep a constant price offset, the way the shift sweep does for time.
+   *
+   * Bounded, and the bound is what keeps this honest: five typical bar ranges
+   * or five hundredths of a percent of the price, whichever is larger. That is
+   * wide enough for two aggregates of the same market to disagree and far too
+   * narrow to reconcile two different markets — gold's futures basis alone is
+   * an order of magnitude beyond it, and anything priced differently is beyond
+   * it by several.
+   */
+  const prices = candles.map((c) => (c.high + c.low) / 2);
+  const level = median(prices) ?? 0;
+  const maxOffset = Math.max(5 * typicalRange, level * 0.0005);
+
+  let priceOffset: number | null = null;
+  let priceOffsetScore: number | null = null;
+  if (bestScore < 0.9 && maxOffset > 0) {
+    const step = maxOffset / 40;
+    for (let o = -maxOffset; o <= maxOffset; o += step) {
+      let hit = 0, reach = 0;
+      for (const f of relevant) {
+        const key = Math.floor((f.time - bestShift * 60) / 60) * 60;
+        const band = byTime.has(key) ? neighbourhood(key) : null;
+        if (!band) continue;
+        reach++;
+        const p = f.price - o;
+        if (p >= band.low - slack && p <= band.high + slack) hit++;
+      }
+      const r = reach > 0 ? hit / reach : 0;
+      if (priceOffsetScore === null || r > priceOffsetScore) { priceOffsetScore = r; priceOffset = o; }
+    }
+  }
+
   return {
     checked: atZero.reach,
     inside: atZero.n,
@@ -384,5 +487,9 @@ export function checkAlignment(
     dstLikely,
     combinedScore: combined,
     evidence,
+    typicalRange,
+    priceOffset,
+    priceOffsetScore,
+    medianMiss,
   };
 }

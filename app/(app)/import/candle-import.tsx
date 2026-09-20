@@ -263,7 +263,8 @@ function AlignmentCard({ report, onShift }: { report: AlignmentReport; onShift: 
   }
 
   const pctIn = Math.round((score ?? 0) * 100);
-  const good = (score ?? 0) >= 0.9;
+  const offsetExplains = (report.priceOffsetScore ?? 0) >= 0.9;
+  const good = (score ?? 0) >= 0.9 || offsetExplains;
   const fixable = !good && bestShiftMinutes !== 0 && (bestScore ?? 0) >= 0.9;
   const dst = !good && !fixable && report.dstLikely;
 
@@ -277,7 +278,9 @@ function AlignmentCard({ report, onShift }: { report: AlignmentReport; onShift: 
 
       {good ? (
         <p className="mt-2 text-[13px]" style={{ color: "var(--ink2)" }}>
-          That is what a correct file looks like. Save it.
+          {offsetExplains && (score ?? 0) < 0.9
+            ? `Your fills sit a consistent ${Math.abs(report.priceOffset ?? 0).toFixed(2)} ${(report.priceOffset ?? 0) > 0 ? "above" : "below"} these candles, which is the two sources quoting the same market from different books rather than a problem. Save it.`
+            : "That is what a correct file looks like. Save it."}
         </p>
       ) : fixable ? (
         <>
@@ -309,8 +312,10 @@ function AlignmentCard({ report, onShift }: { report: AlignmentReport; onShift: 
         </>
       ) : (
         <p className="mt-2 text-[13px]" style={{ color: "var(--ink2)" }}>
-          No shift fixes it, so this is probably a different instrument, or prices on a
-          different scale. Importing it anyway would put wrong candles behind your trades.
+          The fills that missed sit a median of {(report.medianMiss ?? 0).toFixed(2)} from their
+          candle, against a typical candle height of {report.typicalRange.toFixed(2)}. That is too
+          far for the same market, and no constant difference accounts for it — so this is probably
+          a different instrument, or prices on a different scale.
         </p>
       )}
 

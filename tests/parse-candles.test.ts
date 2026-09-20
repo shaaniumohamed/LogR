@@ -197,6 +197,26 @@ describe("checkAlignment", () => {
     expect(r.dstLikely).toBe(false);
   });
 
+  it("accepts a fill at the real extreme of a minute the source under-reports", () => {
+    // A consolidated aggregate never saw every tick, so it publishes a narrower
+    // high-to-low than the market traded through — hardest exactly in the fast
+    // minutes, which is when a scalper is filling. The fill is genuine; the bar
+    // is incomplete. The minutes either side contain the movement.
+    const thin = candles.map((c, i) =>
+      i === 60 ? { ...c, high: c.low + 0.02 } : c);
+    const atTheExtreme = [{ time: base + 60 * 60 + 30, price: thin[61].high }];
+    expect(checkAlignment(thin, atTheExtreme).score).toBe(1);
+  });
+
+  it("still refuses something a minute either side cannot reach", () => {
+    // The widening must not become a licence. A price far outside the local
+    // neighbourhood is a different market, however plausible the timestamp.
+    const farOff = [{ time: base + 60 * 60 + 30, price: candles[60].high + 50 }];
+    const r = checkAlignment(candles, farOff);
+    expect(r.score).toBe(0);
+    expect(r.medianMiss).toBeGreaterThan(40);
+  });
+
   it("says nothing rather than guessing when the file covers none of the trades", () => {
     const elsewhere = [{ time: base + 400 * 86400, price: 1000 }];
     const r = checkAlignment(candles, elsewhere);

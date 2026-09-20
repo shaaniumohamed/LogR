@@ -88,14 +88,23 @@ export async function POST(req: Request) {
     [...opens, ...closes].map((r) => ({ time: Math.floor(r.t.getTime() / 1000), price: r.p })),
   );
 
-  if (alignment.checked > 0 && (alignment.score ?? 0) < 0.9) {
-    // Say which of the three it is. They need different actions, and guessing
-    // the wrong one sends the trader to fix something that was never broken.
+  /*
+   * A constant price difference between the two sources is not a reason to
+   * refuse the candles. The broker fills from its own book and the data service
+   * publishes a consolidated aggregate, so the two sit a little apart; what
+   * matters is that they are the same instrument moving together, which a
+   * constant offset accounting for the rest is good evidence of.
+   */
+  const offsetExplains = (alignment.priceOffsetScore ?? 0) >= 0.9;
+
+  if (alignment.checked > 0 && (alignment.score ?? 0) < 0.9 && !offsetExplains) {
+    // Say which it is. They need different actions, and guessing the wrong one
+    // sends the trader to fix something that was never broken.
     const why = alignment.dstLikely
       ? "Part of the period needs one shift and the rest another, which is a clock change rather than bad data."
       : alignment.bestShiftMinutes !== 0 && (alignment.bestScore ?? 0) >= 0.9
         ? `They would match shifted by ${alignment.bestShiftMinutes / 60} hours, so the service answered in the wrong time zone.`
-        : "No shift fixes it, so this is most likely a different instrument under a similar ticker.";
+        : `The fills that missed sit a median of ${(alignment.medianMiss ?? 0).toFixed(2)} from their candle, against a typical candle height of ${alignment.typicalRange.toFixed(2)} — too far for the same market, and no constant difference accounts for it.`;
     return NextResponse.json({
       error: "The candles that came back do not match your fills, so they were not saved.",
       detail: `${Math.round((alignment.score ?? 0) * 100)}% of the ${alignment.checked} fills these candles cover landed inside their own candle. ${why}`,
@@ -128,6 +137,9 @@ export async function POST(req: Request) {
     symbol,
     from: candles[0].time,
     to: candles[candles.length - 1].time,
+    // Reported, never applied. Correcting the prices to close the gap would be
+    // editing market data to agree with us.
+    priceOffset: offsetExplains ? alignment.priceOffset : null,
     alignment,
   });
 }
