@@ -89,11 +89,14 @@ export default async function DayPage({ params }: { params: Promise<{ date: stri
   // Hours of this day only, in the trader's clock. Every hour they traded is
   // shown, however few trades it holds — inside one day a single hour is the
   // unit of decision, not a sample to be filtered for significance.
-  const hourMap = new Map<number, { net: number; n: number }>();
+  const hourMap = new Map<number, { net: number; n: number; sessions: Set<string> }>();
   for (const t of trades) {
     const h = hourIn(t.openedAt, timeZone);
-    const g = hourMap.get(h) ?? { net: 0, n: 0 };
+    const g = hourMap.get(h) ?? { net: 0, n: 0, sessions: new Set<string>() };
     g.net += t.netPnl; g.n += 1;
+    // Named from the trade, not from the local hour: which desks are open is a
+    // fact about UTC, and one local hour can straddle a session boundary.
+    g.sessions.add(sessionOf(t.openedAt));
     hourMap.set(h, g);
   }
   const hourRows = [...hourMap.entries()]
@@ -101,7 +104,7 @@ export default async function DayPage({ params }: { params: Promise<{ date: stri
     .map(([h, g]) => ({
       label: `${String(h).padStart(2, "0")}:00`,
       value: Math.round(g.net * 100) / 100,
-      meta: `${count(g.n)} · ${sessionOf(h)}`,
+      meta: `${count(g.n)} · ${[...g.sessions].join(" / ")}`,
     }));
 
   const curvePoints = trades.map((t, i) => ({ at: fmtTime.format(t.closedAt), value: shape.curve[i] }));

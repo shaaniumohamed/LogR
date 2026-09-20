@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { loadAnnotations } from "@/lib/actions";
 import { loadTrades } from "@/lib/queries";
+import { localDayKey } from "@/lib/core/metrics";
 import { confluenceLabel, feelingLabel, mistakeLabel } from "@/lib/core/taxonomy";
 import { heldOverWeekend } from "@/lib/core/analysis";
 import { Card, Empty, Eyebrow, Note, Verdict, count, money, pct } from "@/components/ui";
@@ -18,6 +19,7 @@ export const dynamic = "force-dynamic";
  * imported would answer a question nobody asked.
  */
 const SPANS = [
+  { key: "latest", label: "Latest day" },
   { key: "week", label: "This week" },
   { key: "month", label: "This month" },
   { key: "all", label: "Everything" },
@@ -25,7 +27,7 @@ const SPANS = [
 type SpanKey = (typeof SPANS)[number]["key"];
 
 function spanStart(span: SpanKey, timeZone: string): Date | null {
-  if (span === "all") return null;
+  if (span === "all" || span === "latest") return null;
   const now = new Date();
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-CA", {
@@ -40,11 +42,12 @@ function spanStart(span: SpanKey, timeZone: string): Date | null {
 }
 
 export default async function Review({ searchParams }: {
-  searchParams: Promise<{ tab?: string; span?: string }>;
+  searchParams: Promise<{ tab?: string; span?: string; q?: string }>;
 }) {
   const sp = await searchParams;
   const tab = sp.tab === "done" ? "done" : "todo";
   const span = (SPANS.some((s) => s.key === sp.span) ? sp.span : "all") as SpanKey;
+  const q = (sp.q ?? "").trim().slice(0, 80);
 
   const { all, account, timeZone, isEmpty } = await loadTrades("all");
   if (isEmpty) return <Empty title="Nothing to review" body="Import your trade history first." />;
@@ -52,11 +55,36 @@ export default async function Review({ searchParams }: {
   const annotations = await loadAnnotations(account.id);
   const byHash = new Map(annotations.map((a) => [a.identityHash, a]));
 
+  /*
+   * "Latest day" is not a calendar span and cannot be one.
+   *
+   * The others answer "what have I done lately"; this answers "what did I just
+   * do", which is the review that actually gets done — the one at the end of the
+   * session, before the day has blurred. It is anchored to the newest trade
+   * rather than to today, because the last session was probably Friday and a
+   * button that empties itself over the weekend is a button nobody trusts.
+   */
+  const latestDay = all.length ? localDayKey(all[0].closedAt, timeZone) : null;
   const from = spanStart(span, timeZone);
-  const inSpan = from ? all.filter((t) => t.closedAt >= from) : all;
+  const inSpan =
+    span === "latest"
+      ? all.filter((t) => localDayKey(t.closedAt, timeZone) === latestDay)
+      : from
+        ? all.filter((t) => t.closedAt >= from)
+        : all;
 
-  const pending = inSpan.filter((t) => !byHash.has(t.id));
-  const reviewed = inSpan.filter((t) => byHash.has(t.id));
+  /*
+   * A row exists the moment anything is saved against a trade, including an
+   * empty mark-up, so its presence is not proof that anything was written. Only
+   * count a trade reviewed when it actually carries something the trader put
+   * there — otherwise the progress bar congratulates them for a stray tap.
+   */
+  const written = (a: (typeof annotations)[number] | undefined) =>
+    !!a && !!(a.setup || a.emotion || a.note || a.invalidation
+      || a.confluences?.length || a.mistakes?.length || a.drawings?.length);
+
+  const pending = inSpan.filter((t) => !written(byHash.get(t.id)));
+  const reviewed = inSpan.filter((t) => written(byHash.get(t.id)));
 
   /**
    * Biggest absolute result first, not newest first.
@@ -66,15 +94,36 @@ export default async function Review({ searchParams }: {
    * all the explanatory signal.
    */
   const queue = [...pending].sort((a, b) => Math.abs(b.netPnl) - Math.abs(a.netPnl)).slice(0, 25);
-  const done = [...reviewed].sort((a, b) => b.closedAt.getTime() - a.closedAt.getTime()).slice(0, 50);
+  /*
+   * Search runs over what the trader wrote, not over the broker's fields. That
+   * is the only part of a journal a person actually remembers by phrase — "the
+   * one where I said I was chasing" — and without it a long history is a place
+   * notes go to be lost.
+   */
+  const needle = q.toLowerCase();
+  const matches = (t: ZoneTrade) => {
+    if (!needle) return true;
+    const a = byHash.get(t.id);
+    if (!a) return false;
+    const hay = [a.note, a.setup, a.timeframe, a.emotion,
+                 ...(a.confluences ?? []), ...(a.mistakes ?? []),
+                 ...(a.drawings ?? []).map((d) => d.label)].filter(Boolean).join(" ").toLowerCase();
+    return hay.includes(needle);
+  };
+  const found = reviewed.filter(matches);
+  const done = [...found].sort((a, b) => b.closedAt.getTime() - a.closedAt.getTime()).slice(0, 50);
 
   const pctDone = inSpan.length ? reviewed.length / inSpan.length : 0;
   const fmt = new Intl.DateTimeFormat("en-GB", {
     day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone,
   });
 
-  const href = (next: { tab?: string; span?: string }) =>
-    `/review?tab=${next.tab ?? tab}&span=${next.span ?? span}`;
+  const href = (next: { tab?: string; span?: string; q?: string }) => {
+    const p = new URLSearchParams({ tab: next.tab ?? tab, span: next.span ?? span });
+    const term = next.q ?? q;
+    if (term) p.set("q", term);
+    return `/review?${p.toString()}`;
+  };
 
   return (
     <div className="space-y-4">
@@ -106,7 +155,7 @@ export default async function Review({ searchParams }: {
         <Eyebrow>Annotation progress</Eyebrow>
         <Verdict>
           {inSpan.length === 0
-            ? `No trades ${span === "week" ? "this week" : "this month"} yet.`
+            ? `No trades ${span === "week" ? "this week" : span === "month" ? "this month" : "in this period"} yet.`
             : reviewed.length === 0
               ? `None of these ${inSpan.length} trades are annotated yet. You do not need to do them all.`
               : `${reviewed.length} of ${inSpan.length} annotated.`}
@@ -151,10 +200,29 @@ export default async function Review({ searchParams }: {
             )}
           </Card>
         )
-      ) : done.length === 0 ? (
-        <Empty title="Nothing annotated yet"
-               body="Trades you annotate show up here, with what you tagged, so you can come back and read your own reasoning." />
       ) : (
+        <>
+          <form action="/review" method="get" className="flex gap-2">
+            <input type="hidden" name="tab" value="done" />
+            <input type="hidden" name="span" value={span} />
+            <input name="q" defaultValue={q} placeholder="Search your notes and tags"
+                   className="min-w-0 flex-1 rounded-lg px-3 py-2.5 text-[13px]"
+                   style={{ background: "var(--s1)", border: "1px solid var(--line)", color: "var(--ink)" }} />
+            <button type="submit" className="rounded-lg px-3.5 py-2.5 text-[13px] font-semibold"
+                    style={{ background: "var(--ink)", color: "var(--plane)" }}>Search</button>
+            {q && (
+              <Link href={href({ q: "" })} className="self-center text-[12.5px]" style={{ color: "var(--c1)" }}>
+                Clear
+              </Link>
+            )}
+          </form>
+          {done.length === 0 ? (
+            <Empty
+              title={q ? `Nothing matches “${q}”` : "Nothing annotated yet"}
+              body={q
+                ? "Search looks through your notes, setups, feelings, mistakes and the names you gave your chart mark-up."
+                : "Trades you annotate show up here, with what you tagged, so you can come back and read your own reasoning."} />
+          ) : (
         <Card className="!p-0">
           <div className="px-4 pt-4">
             <Eyebrow>What you have written down</Eyebrow>
@@ -218,6 +286,8 @@ export default async function Review({ searchParams }: {
             </Link>
           </div>
         </Card>
+          )}
+        </>
       )}
     </div>
   );

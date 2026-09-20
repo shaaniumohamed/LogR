@@ -118,6 +118,11 @@ export default async function Trades({ searchParams }: {
   const confluence = oneOf(sp.confluence, confluencesUsed);
   const tagged = oneOf(sp.tagged, ["yes", "no"] as const);
 
+  // A price band, as "low:high", so a level on the Patterns page can be opened.
+  const band = /^\d+(\.\d+)?:\d+(\.\d+)?$/.test(sp.level ?? "")
+    ? (sp.level!.split(":").map(Number) as [number, number])
+    : null;
+
   const result = oneOf(sp.result, RESULTS.map((r) => r.value));
   const shape = oneOf(sp.shape, SHAPES.map((s) => s.value));
   const day = oneOf(sp.day, WEEKDAYS);
@@ -145,7 +150,7 @@ export default async function Trades({ searchParams }: {
   if (shape === "stop") filtered = filtered.filter((t) => t.hadStop);
   if (shape === "nostop") filtered = filtered.filter((t) => !t.hadStop);
   if (day) filtered = filtered.filter((t) => weekdayIn(t.openedAt, timeZone) === day);
-  if (sess) filtered = filtered.filter((t) => sessionOf(hourIn(t.openedAt, timeZone)) === sess);
+  if (sess) filtered = filtered.filter((t) => sessionOf(t.openedAt) === sess);
   if (hour) filtered = filtered.filter((t) => hourIn(t.openedAt, timeZone) === Number(hour));
   if (hold) filtered = filtered.filter((t) => holdBucket(t.holdMinutes) === hold);
   if (dir) filtered = filtered.filter((t) => t.direction === dir);
@@ -155,6 +160,12 @@ export default async function Trades({ searchParams }: {
   if (emotion) filtered = filtered.filter((t) => byHash.get(t.id)?.emotion === emotion);
   if (mistake) filtered = filtered.filter((t) => byHash.get(t.id)?.mistakes?.includes(mistake));
   if (confluence) filtered = filtered.filter((t) => byHash.get(t.id)?.confluences?.includes(confluence));
+  if (band) {
+    const [lo, hi] = band;
+    filtered = filtered.filter((t) =>
+      (byHash.get(t.id)?.drawings ?? []).some((d) =>
+        Math.min(d.low, d.high) <= hi && Math.max(d.low, d.high) >= lo));
+  }
   if (tagged) {
     const has = (t: ZoneTrade) => {
       const a = byHash.get(t.id);
@@ -174,6 +185,7 @@ export default async function Trades({ searchParams }: {
     const base: Record<string, string | null> = {
       period, date: onDate, result, shape, day, session: sess, hour, hold,
       direction: dir, month, setup, tf, emotion, mistake, confluence, tagged,
+      level: band ? sp.level! : null,
       sort: sort === "recent" ? null : sort,
       page: page > 1 ? String(page) : null, ...patch,
     };
@@ -237,6 +249,17 @@ export default async function Trades({ searchParams }: {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <PeriodTabs base="/trades" active={period} />
           <span className="text-[11px]" style={{ color: "var(--ink3)" }}>times in your local time</span>
+        </div>
+      )}
+
+      {band && (
+        <div className="flex items-center justify-between gap-3 rounded-xl px-4 py-3"
+             style={{ background: "var(--s3)", border: "1px solid var(--line)" }}>
+          <span className="text-[13px]">
+            Trades where you marked{" "}
+            <b className="num">{band[0].toFixed(2)} – {band[1].toFixed(2)}</b>
+          </span>
+          <Link href={href({ level: null })} className="text-[12.5px]" style={{ color: "var(--c1)" }}>Clear</Link>
         </div>
       )}
 

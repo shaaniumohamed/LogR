@@ -100,11 +100,31 @@ export function holdBucket(minutes: number): string {
   return "Over 30 min";
 }
 
-export function sessionOf(hour: number): string {
-  if (hour < 7) return "Asia";
-  if (hour < 13) return "London";
-  if (hour < 18) return "New York";
-  return "Late";
+export const SESSIONS = ["Asia", "London", "New York", "Late"] as const;
+export type Session = (typeof SESSIONS)[number];
+
+/**
+ * Which trading session an instant falls in.
+ *
+ * Read off UTC, never off the trader's own clock. A session is a fact about
+ * where in the world the desks are open, not about what time it is where the
+ * trader is sitting — and this function previously took a local hour, which
+ * made every label wrong by the size of the trader's offset. At UTC+8 the
+ * trades it filed under "Asia" (local 00:00–06:59) had actually been taken
+ * between 16:00 and 23:00 UTC, which is the New York afternoon: the two busiest
+ * labels were the wrong way round. It also meant a friend in London and a
+ * friend in Kuala Lumpur reading the same market got different answers.
+ *
+ * Boundaries are the hours the sessions genuinely overlap the least. They are
+ * approximate to within an hour across daylight saving, which no fixed boundary
+ * can avoid and which is far smaller than the error being fixed.
+ */
+export function sessionOf(at: Date): Session {
+  const h = at.getUTCHours();
+  if (h < 7) return "Asia";        // Tokyo's morning
+  if (h < 13) return "London";     // London's morning, before New York arrives
+  if (h < 21) return "New York";   // the overlap and the US afternoon
+  return "Late";                   // Sydney opening, thinnest of the day
 }
 
 export const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];

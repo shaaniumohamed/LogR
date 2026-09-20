@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { loadAnnotation } from "@/lib/actions";
 import { loadTradeWithLegs, loadTrades } from "@/lib/queries";
+import { pointValuePerLot } from "@/lib/core/metrics";
 import { TradeChart } from "@/components/trade-chart";
 import { closureGap, contextWindow, fetchWindow, loadBars } from "@/lib/candles";
 import { coversFills } from "@/lib/core/window";
@@ -65,7 +66,14 @@ export default async function TradeDetail({ params, searchParams }: {
   const pad = Math.max(0.35, (t.zoneHigh - t.zoneLow) * 0.6);
   const suggested = t.direction === "long" ? t.zoneLow - pad : t.zoneHigh + pad;
 
-  const risk = Math.abs(t.avgEntry - (existing?.invalidation ?? suggested)) * 100 * t.lots;
+  /*
+   * What a point is worth, measured from this account's own fills rather than
+   * assumed to be gold's hundred ounces. Everything R depends on it, so when it
+   * cannot be established the R figure says so instead of printing a number that
+   * is out by whatever the real contract size happens to be.
+   */
+  const perPoint = pointValuePerLot(all);
+  const risk = perPoint ? Math.abs(t.avgEntry - (existing?.invalidation ?? suggested)) * perPoint * t.lots : 0;
   const rMultiple = risk > 0 ? t.netPnl / risk : null;
 
   const fmt = new Intl.DateTimeFormat("en-GB", {
@@ -102,14 +110,14 @@ export default async function TradeDetail({ params, searchParams }: {
             <Stat label="Held" value={t.holdMinutes < 1 ? "<1 min" : `${Math.round(t.holdMinutes)} min`} />
             <Stat label="Result in R" value={rMultiple !== null ? `${rMultiple > 0 ? "+" : "−"}${Math.abs(rMultiple).toFixed(2)}R` : "—"}
                   tone={(rMultiple ?? 0) >= 0 ? "pos" : "neg"}
-                  sub={existing?.invalidation ? "measured" : "estimated"} />
+                  sub={rMultiple === null ? "needs more trades" : existing?.invalidation ? "measured" : "estimated"} />
           </StatGrid>
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-3 text-[13px] sm:grid-cols-4">
           {[["Average entry", t.avgEntry.toFixed(2)], ["Average exit", t.avgExit.toFixed(2)],
             ["Zone", `${t.zoneLow.toFixed(2)} – ${t.zoneHigh.toFixed(2)}`],
-            ["Risked", `$${risk.toFixed(2)}`]].map(([k, v]) => (
+            ["Risked", risk > 0 ? `$${risk.toFixed(2)}` : "—"]].map(([k, v]) => (
             <div key={k}>
               <div className="text-[11px]" style={{ color: "var(--ink3)" }}>{k}</div>
               <div className="num font-semibold">{v}</div>
@@ -206,6 +214,14 @@ export default async function TradeDetail({ params, searchParams }: {
                 did you get filled where you meant to, or did you chase?
                 <br /><br />
                 The red dashed line is your invalidation, set in the form below.
+                <br /><br />
+                <b>Why the buttons stop at an hour.</b> The chart covers hours either side of
+                the trade, so a daily candle over it would be one candle and a weekly one
+                would be part of a candle — neither tells you anything you cannot already see.
+                Where the higher timeframes belong is the question below of which one you read
+                the setup on: that is what makes &ldquo;my daily levels pay and my five-minute
+                ones do not&rdquo; a thing this app can eventually tell you. A button only
+                offers a timeframe when there is enough history loaded to draw it properly.
               </Info>
             </>
           ) : (

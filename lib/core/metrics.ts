@@ -95,13 +95,17 @@ export function segmentBy<T extends ZoneTrade | Position>(
  * it is the hurdle each trade cleared. Report it as a share of GROSS EDGE
  * (net + spread), never as a share of net profit.
  */
-export function spreadCost(totalLots: number, spreadPerOz: number, contractSize = 100) {
-  return round2(totalLots * contractSize * spreadPerOz);
+export function spreadCost(totalLots: number, spreadInPrice: number, perPointPerLot: number) {
+  return round2(totalLots * perPointPerLot * spreadInPrice);
 }
 
-export function costPicture(net: number, totalLots: number, lo = 0.15, hi = 0.3) {
-  const costLo = spreadCost(totalLots, lo);
-  const costHi = spreadCost(totalLots, hi);
+/**
+ * `perPoint` is the measured value of one point per lot. It replaces the old
+ * hard-coded contract size of 100, which was gold's and nobody else's.
+ */
+export function costPicture(net: number, totalLots: number, lo: number, hi: number, perPoint: number) {
+  const costLo = spreadCost(totalLots, lo, perPoint);
+  const costHi = spreadCost(totalLots, hi, perPoint);
   return {
     costLo,
     costHi,
@@ -111,6 +115,43 @@ export function costPicture(net: number, totalLots: number, lo = 0.15, hi = 0.3)
     keptLo: net + costHi > 0 ? net / (net + costHi) : null,
     keptHi: net + costLo > 0 ? net / (net + costLo) : null,
   };
+}
+
+/**
+ * What one point of price movement is worth, per lot, in the account's currency.
+ *
+ * MEASURED, not looked up. Every fill the broker reports carries an entry price,
+ * an exit price, a size and a result, and those four numbers already contain the
+ * contract size, the account currency, the cent-account factor and anything else
+ * the instrument does — so asking the trades is both simpler and more correct
+ * than keeping a table of contract sizes that is wrong the first time a friend
+ * opens the app with a different symbol in it.
+ *
+ * The median rather than the mean, because trades whose price barely moved have
+ * their ratio dominated by commission and swap and land as outliers at both
+ * ends. On a commission-free account with short holds the ratio is exact; on any
+ * other, the median is the value the typical trade agrees on.
+ *
+ * Returns null when there is not enough to be sure, and every figure derived
+ * from it is expected to disappear rather than fall back to a guess.
+ */
+export function pointValuePerLot(trades: ZoneTrade[], minTrades = 20): number | null {
+  const ratios: number[] = [];
+  for (const t of trades) {
+    const move = (t.avgExit - t.avgEntry) * (t.direction === "long" ? 1 : -1);
+    if (!Number.isFinite(move) || move === 0 || t.lots <= 0) continue;
+    const v = t.netPnl / (move * t.lots);
+    // A negative or absurd ratio means fees swamped the move, or the row is bad.
+    if (Number.isFinite(v) && v > 0) ratios.push(v);
+  }
+  if (ratios.length < minTrades) return null;
+
+  ratios.sort((a, b) => a - b);
+  const mid = ratios.length / 2;
+  const median = ratios.length % 2
+    ? ratios[Math.floor(mid)]
+    : (ratios[mid - 1] + ratios[mid]) / 2;
+  return Number.isFinite(median) && median > 0 ? median : null;
 }
 
 /** Local-time hour. The export is UTC; a trader acts in their own timezone. */

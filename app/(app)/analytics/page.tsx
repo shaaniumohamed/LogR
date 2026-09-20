@@ -4,6 +4,7 @@ import { loadAnnotations } from "@/lib/actions";
 import { FEELINGS, MISTAKES, confluenceLabel, feelingLabel, isGoodFeeling, mistakeLabel } from "@/lib/core/taxonomy";
 import { Info, Caveat } from "@/components/info";
 import { holdBucket, sessionOf, weekdayIn, counterfactual, heldOverWeekend } from "@/lib/core/analysis";
+import { clusterLevels, type Mark } from "@/lib/core/levels";
 import { loadExits, loadTrades, resolvePeriod } from "@/lib/queries";
 import { PeriodTabs } from "@/components/period-tabs";
 import { zoneName } from "@/lib/timezones";
@@ -150,7 +151,7 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
     (k) => drill(period, { shape: k === "Stop loss set" ? "stop" : "nostop" }));
   const hourRows = rowsFor(trades, (t) => `${String(hourIn(t.openedAt, timeZone)).padStart(2, "0")}:00`, 15,
     (k) => drill(period, { hour: String(Number(k.slice(0, 2))) })).slice(0, 12);
-  const sessionRows = rowsFor(trades, (t) => sessionOf(hourIn(t.openedAt, timeZone)), MIN,
+  const sessionRows = rowsFor(trades, (t) => sessionOf(t.openedAt), MIN,
     (k) => drill(period, { session: k }));
   const dayRows = rowsFor(trades, (t) => weekdayIn(t.openedAt, timeZone), MIN, (k) => drill(period, { day: k }));
   const holdRows = rowsFor(trades, (t) => holdBucket(t.holdMinutes), MIN, (k) => drill(period, { hold: k }));
@@ -175,6 +176,22 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
    * decided after entry: it reopens where it reopens. Mixed into "how long do I
    * hold", a handful of them can swamp the hold-time answer entirely.
    */
+  /*
+   * Mark-up, pooled across every trade that carries it.
+   *
+   * A zone drawn on one trade is a note. The same zone drawn on fifteen trades
+   * over two months is a level the trader keeps returning to, and its combined
+   * result is a thing no other screen can show — it lives in the drawings, not
+   * in the broker's export. Clustering ignores the names, so a band called demand
+   * in March and supply in May shows up as one level that flipped rather than two
+   * unrelated ones, which is the case a level trader most wants to see.
+   */
+  const marks: Mark[] = trades.flatMap((t) =>
+    (byHash.get(t.id)?.drawings ?? []).map((d) => ({
+      tradeId: t.id, low: d.low, high: d.high, label: d.label, netPnl: t.netPnl, at: t.closedAt,
+    })));
+  const levels = clusterLevels(marks).filter((l) => l.trades >= 3).slice(0, 8);
+
   const overWeekend = trades.filter((t) => heldOverWeekend(t.openedAt, t.closedAt));
   const weekendStats = computeStats(overWeekend);
   const cfWeekend = overWeekend.length
@@ -252,6 +269,59 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
             One honest caution: you tag how you felt <i>after</i> seeing the result, and memory
             bends toward the outcome. Tag it the same evening, before the number has had time
             to rewrite the feeling.
+          </Info>
+        </Card>
+      )}
+
+      {levels.length > 0 && (
+        <Card>
+          <Eyebrow>Levels you keep returning to</Eyebrow>
+          <Verdict>
+            Every zone and level you have drawn, pooled by price. These are the bands you trade
+            again and again, and what they have paid you.
+          </Verdict>
+          <ul className="mt-3 space-y-2">
+            {levels.map((l) => {
+              const flipped = l.labels.length > 1;
+              return (
+                <li key={`${l.low}-${l.high}`}>
+                  <Link href={drill(period, { level: `${l.low.toFixed(2)}:${l.high.toFixed(2)}` })}
+                        className="flex items-center gap-3 rounded-lg px-3 py-2.5"
+                        style={{ background: "var(--s3)" }}>
+                    <span className="h-8 w-1 shrink-0 rounded-full"
+                          style={{ background: l.net >= 0 ? "var(--profit)" : "var(--loss)" }} />
+                    <div className="min-w-0 flex-1">
+                      <div className="num text-[13.5px] font-semibold">
+                        {l.low.toFixed(2)} – {l.high.toFixed(2)}
+                      </div>
+                      <div className="truncate text-[11px]" style={{ color: "var(--ink3)" }}>
+                        {l.labels.map((x) => `${x.label}${x.count > 1 ? ` ×${x.count}` : ""}`).join(" · ")}
+                        {flipped ? " — you have called this both ways" : ""}
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className={`num text-[13.5px] font-semibold ${l.net >= 0 ? "pos" : "neg"}`}>
+                        {money0(l.net)}
+                      </div>
+                      <div className="num text-[10.5px]" style={{ color: "var(--ink3)" }}>
+                        {l.trades} trades · {l.wins}W {l.losses}L
+                      </div>
+                    </div>
+                    <span className="shrink-0" style={{ color: "var(--ink3)" }}>›</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+          <Info title="Why the names are pooled rather than separated">
+            A band you called demand in March and supply in May is one level that flipped, not
+            two levels — and a level flipping is the most informative thing that happens to it.
+            Splitting them by the name you happened to give them would hide exactly the case
+            worth seeing, so they are grouped by price and every name you used is listed.
+            <br /><br />
+            Levels are matched when they overlap or sit within about five parts in ten thousand
+            of each other, which is roughly the width of a line drawn by eye. Only bands you
+            have marked on three or more trades appear here.
           </Info>
         </Card>
       )}

@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { computeStats, costPicture } from "@/lib/core/metrics";
+import { computeStats, costPicture, pointValuePerLot } from "@/lib/core/metrics";
+import { spreadRange } from "@/lib/core/instrument";
 import { byHourLocal, byLocalDay, monthKey, weekKey } from "@/lib/core/analysis";
 import { localDayKey } from "@/lib/core/metrics";
 import { loadTrades, recentSlice, resolvePeriod } from "@/lib/queries";
@@ -66,7 +67,21 @@ export default async function Dashboard({ searchParams }: {
   }
 
   const s = computeStats(trades);
-  const cost = costPicture(s.net, s.totalLots);
+
+  /*
+   * The spread estimate needs two things the app does not otherwise know: what a
+   * point is worth on this account, and what a typical spread on this instrument
+   * costs. The first is measured from the trader's own fills. The second comes
+   * from a short table and is simply absent for anything not in it — in which
+   * case the whole card disappears rather than printing gold's numbers over
+   * somebody else's market.
+   */
+  const perPoint = pointValuePerLot(all);
+  const symbols = [...new Set(trades.map((t) => t.symbol))];
+  const spread = symbols.length === 1 ? spreadRange(symbols[0]) : null;
+  const cost = perPoint && spread
+    ? costPicture(s.net, s.totalLots, spread.lo, spread.hi, perPoint)
+    : null;
   const days = byLocalDay(trades, timeZone);
   const allDays = byLocalDay(all, timeZone);
   const hours = byHourLocal(trades, timeZone);
@@ -194,29 +209,36 @@ export default async function Dashboard({ searchParams }: {
         <CurveChart points={curve} format={(v) => money0(v)} aria="Running profit with drawdown shaded" />
       </Card>
 
-      <Card>
-        <Eyebrow>Spread cost<Estimated /></Eyebrow>
-        <Verdict>
-          You kept <b>{money(s.net)}</b> of an estimated{" "}
-          <b>{money0(cost.grossLo)}–{money0(cost.grossHi)}</b> earned before costs.
-        </Verdict>
-        <BarChart
-          rows={[
-            { label: "Earned", value: (cost.grossLo + cost.grossHi) / 2, meta: "before costs" },
-            { label: "Spread", value: -(cost.costLo + cost.costHi) / 2, meta: `${s.totalLots.toFixed(1)} lots traded` },
-            { label: "Kept", value: s.net, meta: "after costs", flag: true },
-          ]}
-          format={(v) => money0(v)}
-        />
-        <Info title="Why this isn't on your statement">
-          The spread is built into the price you were filled at, so it never appears as a charge.
-          It's the gap every trade covers before it earns anything — which is how a strategy can
-          be right more often than it's wrong and still finish close to flat.
-          <br /><br />
-          A raw-spread account charges visible commission but quotes tighter. At{" "}
-          {s.totalLots.toFixed(1)} lots that trade-off is arithmetic, worth checking.
-        </Info>
-      </Card>
+      {cost && spread && (
+        <Card>
+          <Eyebrow>Spread cost<Estimated /></Eyebrow>
+          <Verdict>
+            You kept <b>{money(s.net)}</b> of an estimated{" "}
+            <b>{money0(cost.grossLo)}–{money0(cost.grossHi)}</b> earned before costs.
+          </Verdict>
+          <BarChart
+            rows={[
+              { label: "Earned", value: (cost.grossLo + cost.grossHi) / 2, meta: "before costs" },
+              { label: "Spread", value: -(cost.costLo + cost.costHi) / 2, meta: `${s.totalLots.toFixed(1)} lots traded` },
+              { label: "Kept", value: s.net, meta: "after costs", flag: true },
+            ]}
+            format={(v) => money0(v)}
+          />
+          <Info title="Why this isn't on your statement">
+            The spread is built into the price you were filled at, so it never appears as a charge.
+            It&rsquo;s the gap every trade covers before it earns anything — which is how a strategy
+            can be right more often than it&rsquo;s wrong and still finish close to flat.
+            <br /><br />
+            A raw-spread account charges visible commission but quotes tighter. At{" "}
+            {s.totalLots.toFixed(1)} lots that trade-off is arithmetic, worth checking.
+            <br /><br />
+            <b>Where the numbers come from.</b> A spread on {symbols[0]} of {spread.describe} is
+            assumed — the one thing here that is not measured from your own account. What a point
+            is worth to you is worked out from your own fills, so it is right whatever your
+            contract size or account currency.
+          </Info>
+        </Card>
+      )}
 
       {badHours.length > 0 && (
         <Card>

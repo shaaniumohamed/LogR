@@ -30,6 +30,11 @@ export function ChartPanel({
 }) {
   const [drawings, setDrawings] = useState<Drawing[]>(initialDrawings);
   const [pending, setPending] = useState<Pending>(null);
+  // Naming a band is how mark-up becomes something you can look back across: a
+  // level called "Aug high" reads as an idea months later, where a sixth
+  // "Demand zone" reads as nothing at all.
+  const [naming, setNaming] = useState(false);
+  const [customName, setCustomName] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
   const [isSaving, startSaving] = useTransition();
@@ -84,16 +89,49 @@ export function ChartPanel({
               className="ml-auto text-[12px]" style={{ color: "var(--ink3)" }}>Cancel</button>
           </div>
         ) : (
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="mr-1 text-[12px] font-medium" style={{ color: "var(--ink2)" }}>Mark up:</span>
-            {DRAWING_LABELS.map((d) => (
-              <button key={d.key} type="button"
-                onClick={() => setPending({ label: d.label, kind: d.kind, first: null })}
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-[12px] font-medium" style={{ color: "var(--ink2)" }}>Mark up:</span>
+              {DRAWING_LABELS.map((d) => (
+                <button key={d.key} type="button"
+                  onClick={() => setPending({ label: d.label, kind: d.kind, first: null })}
+                  className="rounded-full px-2.5 py-1 text-[12px]"
+                  style={{ border: "1px solid var(--line)", background: "var(--s1)" }}>
+                  {d.label}
+                </button>
+              ))}
+              <button type="button" onClick={() => setNaming((v) => !v)}
                 className="rounded-full px-2.5 py-1 text-[12px]"
-                style={{ border: "1px solid var(--line)", background: "var(--s1)" }}>
-                {d.label}
+                style={{ border: "1px dashed var(--line)", background: "var(--s1)",
+                         color: naming ? "var(--ink)" : "var(--ink2)" }}>
+                Name your own
               </button>
-            ))}
+            </div>
+
+            {naming && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <input
+                  value={customName}
+                  onChange={(e) => setCustomName(e.target.value.slice(0, 40))}
+                  placeholder="e.g. August high"
+                  className="min-w-0 flex-1 rounded-lg px-2.5 py-1.5 text-[13px]"
+                  style={{ background: "var(--s1)", border: "1px solid var(--line)", color: "var(--ink)" }}
+                />
+                {(["level", "zone"] as const).map((kind) => (
+                  <button key={kind} type="button" disabled={!customName.trim()}
+                    onClick={() => {
+                      setPending({ label: customName.trim(), kind, first: null });
+                      setNaming(false); setCustomName("");
+                    }}
+                    className="rounded-lg px-2.5 py-1.5 text-[12px] font-semibold"
+                    style={{ background: customName.trim() ? "var(--ink)" : "var(--s1)",
+                             color: customName.trim() ? "var(--plane)" : "var(--ink3)",
+                             border: "1px solid var(--line)" }}>
+                    {kind === "level" ? "as a line" : "as a band"}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
