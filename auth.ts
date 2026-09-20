@@ -19,7 +19,13 @@ import { accounts, sessions, users, verificationTokens } from "@/lib/db/schema";
  * deployment signs in with no manual configuration at all; setting AUTH_URL
  * still wins, which is what a custom domain needs.
  */
-if (!process.env.AUTH_URL && process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+if (process.env.AUTH_URL) {
+  // A pasted URL very often carries a trailing slash, which would build a
+  // callback with a doubled slash in it. Google matches the redirect URI as a
+  // literal string, so that one character is the difference between signing in
+  // and redirect_uri_mismatch — and it is invisible in the error message.
+  process.env.AUTH_URL = process.env.AUTH_URL.trim().replace(/\/+$/, "");
+} else if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
   process.env.AUTH_URL = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
 }
 
