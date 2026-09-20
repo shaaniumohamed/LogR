@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 /**
  * Chart primitives.
  *
@@ -20,6 +22,14 @@ export interface BarRow {
   /** Shown verbatim under the label, e.g. "61 trades · won 43%". */
   meta?: string;
   flag?: boolean;
+  /**
+   * Where this bar's trades live.
+   *
+   * A finding you cannot open is a dead end: the chart says your FOMO trades
+   * cost you four hundred dollars and there is no way to go and read them. Every
+   * bar that stands for a group of trades should be the door to that group.
+   */
+  href?: string;
 }
 
 export function BarChart({ rows, format }: { rows: BarRow[]; format: (v: number) => string }) {
@@ -35,8 +45,9 @@ export function BarChart({ rows, format }: { rows: BarRow[]; format: (v: number)
         const positive = r.value >= 0;
         const colour = positive ? "var(--profit)" : "var(--loss)";
         const width = `${(Math.abs(r.value) / max) * (diverging ? 50 : 100)}%`;
-        return (
-          <div key={r.label} className="flex items-center gap-3">
+        const cls = "flex items-center gap-3";
+        const body = (
+          <>
             <div className="w-[34%] min-w-0 shrink-0 sm:w-[30%]">
               <div className="truncate text-[13px] leading-tight"
                    style={{ fontWeight: r.flag ? 700 : 500 }}>{r.label}</div>
@@ -67,8 +78,12 @@ export function BarChart({ rows, format }: { rows: BarRow[]; format: (v: number)
                  style={{ color: colour }}>
               {format(r.value)}
             </div>
-          </div>
+            {r.href && <span className="-ml-1.5 shrink-0 text-[12px]" style={{ color: "var(--ink3)" }} aria-hidden>›</span>}
+          </>
         );
+        return r.href
+          ? <Link key={r.label} href={r.href} scroll={false} className={cls}>{body}</Link>
+          : <div key={r.label} className={cls}>{body}</div>;
       })}
     </div>
   );

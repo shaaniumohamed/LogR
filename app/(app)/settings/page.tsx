@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
@@ -30,8 +31,36 @@ export default async function Settings() {
     timeZone: current, weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
   }).format(new Date());
 
+  /*
+   * The bottom bar holds five sections and there are more than five screens, so
+   * this tab is both Settings and the place the rest of them live. A hub beats a
+   * seventh tab: the pages below are opened deliberately and occasionally, not
+   * thumbed between.
+   */
+  const MORE = [
+    { href: "/playbook", label: "Playbook", blurb: "Each setup on its own, and what separates its winners" },
+    { href: "/import", label: "Import trade history", blurb: "Drop in a broker CSV — re-importing only adds what is new" },
+    { href: "/import?tab=candles", label: "Price history", blurb: "Candles behind your charts, and which days are missing them" },
+  ];
+
   return (
     <div className="space-y-4">
+      <Card className="!p-0">
+        <ul>
+          {MORE.map((m, i) => (
+            <li key={m.href} style={{ borderTop: i === 0 ? "none" : "1px solid var(--line)" }}>
+              <Link href={m.href} className="flex items-center gap-3 px-5 py-3.5">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] font-semibold">{m.label}</div>
+                  <div className="mt-0.5 text-[12px]" style={{ color: "var(--ink3)" }}>{m.blurb}</div>
+                </div>
+                <span className="shrink-0" style={{ color: "var(--ink3)" }}>›</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </Card>
+
       <Card>
         <Eyebrow>Your time zone</Eyebrow>
         <Verdict>

@@ -21,7 +21,10 @@ const NAV = [
   { href: "/review", label: "Review", icon: "M4 3h12v14l-6-3-6 3zM7 7h6M7 10h4" },
   { href: "/settings", label: "More", icon: "M3 6h14M3 10h14M3 14h14" },
 ] as const;
-const DESKTOP_EXTRA = [{ href: "/import", label: "Import" }] as const;
+const DESKTOP_EXTRA = [
+  { href: "/playbook", label: "Playbook" },
+  { href: "/import", label: "Import" },
+] as const;
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();

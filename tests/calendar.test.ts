@@ -3,7 +3,7 @@ import {
   adjacentTradingDay, monthRange, stepMonth, weeksOfMonth,
 } from "../lib/core/calendar";
 import { coversFills } from "../lib/core/window";
-import { dayShape } from "../lib/core/analysis";
+import { dayShape, tagContrast } from "../lib/core/analysis";
 import type { ZoneTrade } from "../lib/core/types";
 
 describe("stepMonth", () => {
@@ -159,5 +159,53 @@ describe("dayShape", () => {
   it("is empty-safe", () => {
     expect(dayShape([]).curve).toEqual([]);
     expect(dayShape([]).peakAt).toBeNull();
+  });
+});
+
+describe("tagContrast", () => {
+  const items = [
+    { won: true, tags: ["fresh_level", "htf_bias"] },
+    { won: true, tags: ["fresh_level", "htf_bias"] },
+    { won: true, tags: ["fresh_level", "htf_bias"] },
+    { won: true, tags: ["htf_bias"] },
+    { won: false, tags: ["htf_bias"] },
+    { won: false, tags: ["htf_bias"] },
+    { won: false, tags: ["htf_bias"] },
+    { won: false, tags: ["htf_bias", "fresh_level"] },
+  ];
+
+  it("separates a tag that predicts from one that is merely everywhere", () => {
+    const [top] = tagContrast(items, 4);
+    // Fresh level: on 3 of 4 winners, 1 of 4 losers. HTF bias is on all eight.
+    expect(top.key).toBe("fresh_level");
+    expect(top.inWinners).toBe(0.75);
+    expect(top.inLosers).toBe(0.25);
+    expect(top.lift).toBe(0.5);
+  });
+
+  it("gives a tag present on everything a lift of zero", () => {
+    const htf = tagContrast(items, 4).find((t) => t.key === "htf_bias")!;
+    expect(htf.lift).toBe(0);
+    expect(htf.seen).toBe(8);
+  });
+
+  it("leaves out tags used too rarely to mean anything", () => {
+    const withRare = [...items, { won: true, tags: ["judas"] }];
+    expect(tagContrast(withRare, 4).some((t) => t.key === "judas")).toBe(false);
+    expect(tagContrast(withRare, 1).some((t) => t.key === "judas")).toBe(true);
+  });
+
+  it("counts a tag once however often it appears on one trade", () => {
+    const dupes = [
+      { won: true, tags: ["fvg", "fvg", "fvg"] },
+      { won: false, tags: ["fvg"] },
+    ];
+    const [fvg] = tagContrast(dupes, 1);
+    expect(fvg.winners).toBe(1);
+    expect(fvg.seen).toBe(2);
+  });
+
+  it("says nothing at all when every trade went the same way", () => {
+    expect(tagContrast([{ won: true, tags: ["a"] }, { won: true, tags: ["a"] }], 1)).toEqual([]);
   });
 });

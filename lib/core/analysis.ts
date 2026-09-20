@@ -203,3 +203,65 @@ export function dayShape(trades: ZoneTrade[]): DayShape {
     gaveBackMost: peak > 0 && gaveBack > peak * 0.5 && gaveBack > 1,
   };
 }
+
+export interface TagContrast {
+  key: string;
+  /** Times this tag appears at all, across winners and losers. */
+  seen: number;
+  winners: number;
+  losers: number;
+  /** Share of the WINNING trades that carried it, and of the losing ones. */
+  inWinners: number;
+  inLosers: number;
+  /** inWinners − inLosers. Positive means it shows up more when things work. */
+  lift: number;
+}
+
+/**
+ * Which of your own tags separate the trades that worked from the ones that did not.
+ *
+ * The question every confluence checklist is really asking and no journal
+ * answers: of the eight things you look for before entering, which ones are
+ * actually present more often when the trade works? Counting how often a tag
+ * appears overall cannot tell you — the tags you believe in are the ones you
+ * look for hardest, so they appear everywhere.
+ *
+ * Comparing its share of winners against its share of losers can. A tag on 70%
+ * of winners and 20% of losers is doing work. A tag on 80% of both is a habit,
+ * not an edge, and knowing that is worth as much: it is time back on every
+ * chart you read.
+ *
+ * `minSeen` keeps out tags used so rarely that one trade would swing them. This
+ * is a description of what happened, not a prediction — the caveat belongs
+ * wherever it is shown.
+ */
+export function tagContrast(
+  items: { won: boolean; tags: string[] }[],
+  minSeen = 5,
+): TagContrast[] {
+  const wins = items.filter((i) => i.won).length;
+  const losses = items.length - wins;
+  if (!wins || !losses) return [];
+
+  const counts = new Map<string, { w: number; l: number }>();
+  for (const i of items) {
+    // A tag applied twice to one trade still only describes one trade.
+    for (const tag of new Set(i.tags)) {
+      const c = counts.get(tag) ?? { w: 0, l: 0 };
+      if (i.won) c.w++; else c.l++;
+      counts.set(tag, c);
+    }
+  }
+
+  return [...counts.entries()]
+    .filter(([, c]) => c.w + c.l >= minSeen)
+    .map(([key, c]) => {
+      const inWinners = c.w / wins;
+      const inLosers = c.l / losses;
+      return {
+        key, seen: c.w + c.l, winners: c.w, losers: c.l,
+        inWinners, inLosers, lift: round2(inWinners - inLosers),
+      };
+    })
+    .sort((a, b) => Math.abs(b.lift) - Math.abs(a.lift));
+}

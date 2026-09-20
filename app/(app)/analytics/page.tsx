@@ -1,6 +1,7 @@
+import Link from "next/link";
 import { computeStats, segmentBy, hourIn } from "@/lib/core/metrics";
 import { loadAnnotations } from "@/lib/actions";
-import { confluenceLabel, feelingLabel, isGoodFeeling, mistakeLabel } from "@/lib/core/taxonomy";
+import { FEELINGS, MISTAKES, confluenceLabel, feelingLabel, isGoodFeeling, mistakeLabel } from "@/lib/core/taxonomy";
 import { Info, Caveat } from "@/components/info";
 import { holdBucket, sessionOf, weekdayIn, counterfactual, heldOverWeekend } from "@/lib/core/analysis";
 import { loadExits, loadTrades, resolvePeriod } from "@/lib/queries";
@@ -14,15 +15,33 @@ export const dynamic = "force-dynamic";
 
 const MIN = 10; // below this a bucket says nothing, so it is not drawn at all
 
-function rowsFor(trades: ZoneTrade[], key: (t: ZoneTrade) => string | null, minN = MIN): BarRow[] {
+/**
+ * Bars for a grouping, each one a link to the trades inside it.
+ *
+ * `linkFor` is what turns this page from a set of conclusions into something a
+ * trader can interrogate. "Your rushed trades cost four hundred dollars" is only
+ * the start of the thought; the rest of it is in the twelve trades themselves,
+ * and until they were one tap away nobody was going to go and find them.
+ */
+function rowsFor(
+  trades: ZoneTrade[],
+  key: (t: ZoneTrade) => string | null,
+  minN = MIN,
+  linkFor?: (groupKey: string) => string,
+): BarRow[] {
   return segmentBy(trades, key, minN)
     .sort((a, b) => b.stats.net - a.stats.net)
     .map((g) => ({
       label: g.key,
       value: g.stats.net,
       meta: `${count(g.stats.n)} · won ${pct(g.stats.winRate, 0)}`,
+      href: linkFor?.(g.key),
     }));
 }
+
+/** Patterns and Trades share one period, so a drill-down lands on the same slice. */
+const drill = (period: string, params: Record<string, string>) =>
+  `/trades?${new URLSearchParams({ period, ...params }).toString()}`;
 
 /** A section only renders if it has something to say. Empty charts are noise. */
 function Section({ title, verdict, rows, note, info }: {
@@ -67,17 +86,24 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
   const ANNOT_MIN = 15;
   const hasEnough = tagged.length >= ANNOT_MIN;
 
+  // Grouped by the label a reader sees, then linked back by the stored key, so
+  // the chart speaks English and the filter still matches what is in the database.
+  const feelingKeys = new Map(FEELINGS.map((f) => [f.label as string, f.key as string]));
+  const mistakeKeys = new Map(MISTAKES.map((m) => [m.label as string, m.key as string]));
+
   const feelingRows = hasEnough
-    ? rowsFor(tagged, (t) => { const f = byHash.get(t.id)?.emotion; return f ? feelingLabel(f) : null; }, 5)
+    ? rowsFor(tagged, (t) => { const f = byHash.get(t.id)?.emotion; return f ? feelingLabel(f) : null; }, 5,
+        (label) => drill(period, { emotion: feelingKeys.get(label) ?? label }))
     : [];
   const setupRows = hasEnough
-    ? rowsFor(tagged, (t) => byHash.get(t.id)?.setup ?? null, 5)
+    ? rowsFor(tagged, (t) => byHash.get(t.id)?.setup ?? null, 5, (k) => drill(period, { setup: k }))
     : [];
   const tfRows = hasEnough
-    ? rowsFor(tagged, (t) => byHash.get(t.id)?.timeframe ?? null, 5)
+    ? rowsFor(tagged, (t) => byHash.get(t.id)?.timeframe ?? null, 5, (k) => drill(period, { tf: k }))
     : [];
   const mistakeRows = hasEnough
-    ? rowsFor(tagged, (t) => { const m = byHash.get(t.id)?.mistakes ?? []; return m.length ? mistakeLabel(m[0]) : null; }, 5)
+    ? rowsFor(tagged, (t) => { const m = byHash.get(t.id)?.mistakes ?? []; return m.length ? mistakeLabel(m[0]) : null; }, 5,
+        (label) => drill(period, { mistake: mistakeKeys.get(label) ?? label }))
     : [];
 
   // Calm against charged states. Feelings are grouped rather than listed one by
@@ -120,13 +146,18 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
   const targets = exitGroups.get("Target was hit");
   const byHand = exitGroups.get("You closed it by hand");
 
-  const stopRows = rowsFor(trades, (t) => (t.hadStop ? "Stop loss set" : "No stop set"));
-  const hourRows = rowsFor(trades, (t) => `${String(hourIn(t.openedAt, timeZone)).padStart(2, "0")}:00`, 15).slice(0, 12);
-  const sessionRows = rowsFor(trades, (t) => sessionOf(hourIn(t.openedAt, timeZone)));
-  const dayRows = rowsFor(trades, (t) => weekdayIn(t.openedAt, timeZone));
-  const holdRows = rowsFor(trades, (t) => holdBucket(t.holdMinutes));
-  const dirRows = rowsFor(trades, (t) => (t.direction === "long" ? "Buys" : "Sells"));
-  const ladderRows = rowsFor(trades, (t) => (t.legCount > 1 ? `Laddered in` : "Single entry"));
+  const stopRows = rowsFor(trades, (t) => (t.hadStop ? "Stop loss set" : "No stop set"), MIN,
+    (k) => drill(period, { shape: k === "Stop loss set" ? "stop" : "nostop" }));
+  const hourRows = rowsFor(trades, (t) => `${String(hourIn(t.openedAt, timeZone)).padStart(2, "0")}:00`, 15,
+    (k) => drill(period, { hour: String(Number(k.slice(0, 2))) })).slice(0, 12);
+  const sessionRows = rowsFor(trades, (t) => sessionOf(hourIn(t.openedAt, timeZone)), MIN,
+    (k) => drill(period, { session: k }));
+  const dayRows = rowsFor(trades, (t) => weekdayIn(t.openedAt, timeZone), MIN, (k) => drill(period, { day: k }));
+  const holdRows = rowsFor(trades, (t) => holdBucket(t.holdMinutes), MIN, (k) => drill(period, { hold: k }));
+  const dirRows = rowsFor(trades, (t) => (t.direction === "long" ? "Buys" : "Sells"), MIN,
+    (k) => drill(period, { direction: k === "Buys" ? "long" : "short" }));
+  const ladderRows = rowsFor(trades, (t) => (t.legCount > 1 ? `Laddered in` : "Single entry"), MIN,
+    (k) => drill(period, { shape: k === "Laddered in" ? "laddered" : "single" }));
 
   // Counterfactuals, reported in BOTH directions. Testing on real data turned up a
   // bucket that intuition called bad and that was in fact carrying profit, so a
@@ -164,7 +195,7 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
         <Note>
           Every bar is the money you made or lost in that group, with how many trades it
           covers. Groups with fewer than {MIN} trades are left out, because a handful of
-          trades cannot tell you anything.
+          trades cannot tell you anything. <b>Tap any bar</b> to read the trades behind it.
         </Note>
         <Info title="Why a pattern here is not proof">
           These charts show things that happened <i>together</i>. That is not the same as one
@@ -222,6 +253,21 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
             bends toward the outcome. Tag it the same evening, before the number has had time
             to rewrite the feeling.
           </Info>
+        </Card>
+      )}
+
+      {setupRows.length > 0 && (
+        <Card>
+          <Eyebrow>Your playbook</Eyebrow>
+          <Verdict>
+            Each setup has its own page, with what separates the times it works from the times
+            it does not.
+          </Verdict>
+          <Note>
+            <Link href={`/playbook?period=${period}`} style={{ color: "var(--c1)", fontWeight: 600 }}>
+              Open the playbook →
+            </Link>
+          </Note>
         </Card>
       )}
 
@@ -387,7 +433,10 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           {cfWeekend && (
             <Note>
               Without them the account would be {money0(cfWeekend.after)} rather than{" "}
-              {money0(cfWeekend.before)}.
+              {money0(cfWeekend.before)}.{" "}
+              <Link href={drill(period, { result: "weekend" })} style={{ color: "var(--c1)", fontWeight: 600 }}>
+                Read them →
+              </Link>
             </Note>
           )}
           <Info title="Why these are counted apart">

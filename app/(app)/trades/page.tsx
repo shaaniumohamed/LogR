@@ -3,6 +3,8 @@ import { computeStats, hourIn, localDayKey } from "@/lib/core/metrics";
 import { heldOverWeekend, holdBucket, sessionOf, weekdayIn } from "@/lib/core/analysis";
 import { monthLabel } from "@/lib/core/calendar";
 import { loadTrades, resolvePeriod } from "@/lib/queries";
+import { loadAnnotations } from "@/lib/actions";
+import { confluenceLabel, feelingLabel, mistakeLabel } from "@/lib/core/taxonomy";
 import { PeriodTabs } from "@/components/period-tabs";
 import { Filters, Segmented, type FilterGroup } from "@/components/filters";
 import { Card, Empty, Stat, StatGrid, count, money, pct } from "@/components/ui";
@@ -68,10 +70,22 @@ export default async function Trades({ searchParams }: {
   const page = Math.max(1, Number(sp.page ?? 1) || 1);
   const PER = 100;
 
-  const { all, trades, timeZone, isEmpty } = await loadTrades(period);
+  const { all, account, trades, timeZone, isEmpty } = await loadTrades(period);
   if (isEmpty) {
     return <Empty title="No trades yet" body="Import a broker CSV and every trade shows up here." />;
   }
+
+  /*
+   * What the trader wrote, joined in so it can be filtered on.
+   *
+   * This is the half of the journal the broker does not know, and until now it
+   * was only readable one trade at a time. Patterns could tell you that your
+   * rushed trades lose money and there was no way to go and read them — which is
+   * where the actual lesson is. Every tag the trader has ever applied is a filter
+   * here, and every bar in Patterns links into it.
+   */
+  const notes = await loadAnnotations(account.id);
+  const byHash = new Map(notes.map((a) => [a.identityHash, a]));
 
   const oneOf = <T extends string>(raw: string | undefined, allowed: readonly T[]): T | null =>
     allowed.includes(raw as T) ? (raw as T) : null;
@@ -80,6 +94,29 @@ export default async function Trades({ searchParams }: {
   // A specific date overrides the period window, or a calendar tap into an older
   // month would silently return nothing.
   const pool = onDate ? all.filter((t) => localDayKey(t.closedAt, timeZone) === onDate) : trades;
+
+  // Tag filters are free text from the trader's own vocabulary, so they are
+  // validated against what has actually been used rather than a fixed list.
+  const used = <T,>(pick: (a: (typeof notes)[number]) => T | T[] | null | undefined): T[] => {
+    const seen = new Set<T>();
+    for (const a of notes) {
+      const v = pick(a);
+      for (const x of Array.isArray(v) ? v : [v]) if (x != null && x !== "") seen.add(x as T);
+    }
+    return [...seen];
+  };
+  const setupsUsed = used<string>((a) => a.setup).sort();
+  const tfUsed = used<string>((a) => a.timeframe).sort();
+  const emotionsUsed = used<string>((a) => a.emotion).sort();
+  const mistakesUsed = used<string>((a) => a.mistakes).sort();
+  const confluencesUsed = used<string>((a) => a.confluences).sort();
+
+  const setup = oneOf(sp.setup, setupsUsed);
+  const tf = oneOf(sp.tf, tfUsed);
+  const emotion = oneOf(sp.emotion, emotionsUsed);
+  const mistake = oneOf(sp.mistake, mistakesUsed);
+  const confluence = oneOf(sp.confluence, confluencesUsed);
+  const tagged = oneOf(sp.tagged, ["yes", "no"] as const);
 
   const result = oneOf(sp.result, RESULTS.map((r) => r.value));
   const shape = oneOf(sp.shape, SHAPES.map((s) => s.value));
@@ -113,6 +150,18 @@ export default async function Trades({ searchParams }: {
   if (hold) filtered = filtered.filter((t) => holdBucket(t.holdMinutes) === hold);
   if (dir) filtered = filtered.filter((t) => t.direction === dir);
   if (month) filtered = filtered.filter((t) => localDayKey(t.closedAt, timeZone).startsWith(month));
+  if (setup) filtered = filtered.filter((t) => byHash.get(t.id)?.setup === setup);
+  if (tf) filtered = filtered.filter((t) => byHash.get(t.id)?.timeframe === tf);
+  if (emotion) filtered = filtered.filter((t) => byHash.get(t.id)?.emotion === emotion);
+  if (mistake) filtered = filtered.filter((t) => byHash.get(t.id)?.mistakes?.includes(mistake));
+  if (confluence) filtered = filtered.filter((t) => byHash.get(t.id)?.confluences?.includes(confluence));
+  if (tagged) {
+    const has = (t: ZoneTrade) => {
+      const a = byHash.get(t.id);
+      return !!(a && (a.note || a.setup || a.emotion || a.confluences?.length || a.mistakes?.length));
+    };
+    filtered = filtered.filter((t) => (tagged === "yes" ? has(t) : !has(t)));
+  }
 
   const sorted = [...filtered].sort((a, b) =>
     sort === "oldest" ? a.closedAt.getTime() - b.closedAt.getTime()
@@ -124,7 +173,8 @@ export default async function Trades({ searchParams }: {
     const p = new URLSearchParams();
     const base: Record<string, string | null> = {
       period, date: onDate, result, shape, day, session: sess, hour, hold,
-      direction: dir, month, sort: sort === "recent" ? null : sort,
+      direction: dir, month, setup, tf, emotion, mistake, confluence, tagged,
+      sort: sort === "recent" ? null : sort,
       page: page > 1 ? String(page) : null, ...patch,
     };
     for (const [k, v] of Object.entries(base)) if (v !== null && v !== undefined) p.set(k, v);
@@ -153,6 +203,15 @@ export default async function Trades({ searchParams }: {
       ? [{ key: "month", label: "Month", active: month,
            options: monthsUsed.map((m) => ({ value: m, label: monthLabel(m) })) } as FilterGroup]
       : []),
+    ...(notes.length
+      ? [{ key: "tagged", label: "Your notes", active: tagged, options: [
+            { value: "yes", label: "Annotated" }, { value: "no", label: "Not annotated yet" }] } as FilterGroup]
+      : []),
+    ...tagGroup("setup", "Setup", setup, setupsUsed, (v) => v),
+    ...tagGroup("tf", "Timeframe you read it on", tf, tfUsed, (v) => v),
+    ...tagGroup("emotion", "How you felt", emotion, emotionsUsed, feelingLabel),
+    ...tagGroup("mistake", "Mistake you tagged", mistake, mistakesUsed, mistakeLabel),
+    ...tagGroup("confluence", "Confluence", confluence, confluencesUsed, confluenceLabel),
   ];
 
   const s = computeStats(sorted);
@@ -210,6 +269,7 @@ export default async function Trades({ searchParams }: {
               const how = endedHow(t);
               const weekend = heldOverWeekend(t.openedAt, t.closedAt);
               const dayKey = localDayKey(t.closedAt, timeZone);
+              const a = byHash.get(t.id);
               return (
                 <li key={t.id} style={{ borderTop: i === 0 ? "none" : "1px solid var(--line)" }}>
                   <Link href={`/trades/${t.id}`} className="flex items-center gap-3 px-4 py-3">
@@ -221,6 +281,13 @@ export default async function Trades({ searchParams }: {
                         {how && <Tag>{how}</Tag>}
                         {weekend && <Tag warn>Over a weekend</Tag>}
                       </div>
+                      {a && (a.setup || a.emotion || a.mistakes?.length) && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {a.setup && <Tag>{a.setup}</Tag>}
+                          {a.emotion && <Tag>{feelingLabel(a.emotion)}</Tag>}
+                          {a.mistakes?.slice(0, 2).map((m) => <Tag key={m} warn>{mistakeLabel(m)}</Tag>)}
+                        </div>
+                      )}
                       <div className="num mt-0.5 truncate text-[11px]" style={{ color: "var(--ink3)" }}>
                         {fmtDay.format(t.openedAt)} {fmtTime.format(t.openedAt)} ·{" "}
                         {t.legCount > 1 ? `${t.legCount} entries` : "1 entry"}
@@ -257,6 +324,15 @@ export default async function Trades({ searchParams }: {
       )}
     </div>
   );
+}
+
+/** A filter group only appears once the trader has used that vocabulary at all. */
+function tagGroup(
+  key: string, label: string, active: string | null,
+  values: string[], toLabel: (v: string) => string,
+): FilterGroup[] {
+  if (values.length < 2) return [];
+  return [{ key, label, active, options: values.map((v) => ({ value: v, label: toLabel(v) })) }];
 }
 
 function Tag({ children, warn }: { children: React.ReactNode; warn?: boolean }) {
