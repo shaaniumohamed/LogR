@@ -4,10 +4,11 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { positions } from "@/lib/db/schema";
 import { getOrCreateAccount } from "@/lib/account";
-import { loadCoverage } from "@/lib/candles";
+import { loadCoverage, missingTradingDays } from "@/lib/candles";
 import ImportClient from "./import-client";
 import { CandleImport } from "./candle-import";
 import { CoverageList } from "./coverage-list";
+import { FetchMissing } from "./fetch-missing";
 
 export const dynamic = "force-dynamic";
 
@@ -72,17 +73,23 @@ async function CandlesTab() {
     .from(positions).where(eq(positions.accountId, account.id))
     .groupBy(positions.symbol).orderBy(desc(sql`count(*)`)).limit(1);
 
-  const coverage = await loadCoverage();
+  const symbol = top?.symbol ?? "XAUUSD";
+  const [coverage, missing] = await Promise.all([
+    loadCoverage(),
+    missingTradingDays(account.id, symbol),
+  ]);
 
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Import price history</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Price history</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--ink2)" }}>
           Your broker export has your fills but not the market&rsquo;s prices. Add one-minute
           candles and every trade gets a real chart, with your entries and exits drawn on it.
         </p>
       </div>
+
+      <FetchMissing days={missing} symbol={symbol} hasKey={!!process.env.TWELVEDATA_API_KEY} />
 
       {coverage.length > 0 && (
         <div className="card p-5">
@@ -98,7 +105,18 @@ async function CandlesTab() {
         </div>
       )}
 
-      <CandleImport defaultSymbol={top?.symbol ?? "XAUUSD"} />
+      <details className="card p-5">
+        <summary className="cursor-pointer text-[13px] font-semibold">
+          Import a file instead
+        </summary>
+        <p className="mt-2 text-[13px]" style={{ color: "var(--ink2)" }}>
+          For history further back than the price service reaches, or when you would rather not
+          use one at all.
+        </p>
+        <div className="mt-4">
+          <CandleImport defaultSymbol={symbol} />
+        </div>
+      </details>
 
       <details className="card p-5">
         <summary className="cursor-pointer text-[13px] font-semibold">Where to get a free file</summary>

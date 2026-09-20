@@ -1,44 +1,12 @@
 import { and, asc, between, count, eq, max, min, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { priceBars } from "@/lib/db/schema";
+import { positions, priceBars } from "@/lib/db/schema";
 import type { Candle } from "@/lib/core/parse-candles";
+import { normalizeSymbol } from "@/lib/core/symbols";
+import { contextWindow, fetchWindow } from "@/lib/core/window";
 
-/**
- * Broker symbols carry suffixes; price files do not.
- *
- * Exness sells the same gold as XAUUSD, XAUUSDm, XAUUSDc and XAUUSD.raw
- * depending on account type, while every free price source calls it XAUUSD. A
- * trade on XAUUSDm has to find bars stored as XAUUSD or the chart is simply
- * blank, with nothing on screen explaining why.
- *
- * Trimming to the first six alphanumerics handles every instrument this touches:
- * FX pairs and metals are six characters and everything after is the broker's
- * own decoration; shorter tickers (US30, NAS100, USOIL) are left alone.
- */
-export function normalizeSymbol(raw: string): string {
-  const s = raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  return s.length > 6 ? s.slice(0, 6) : s;
-}
-
-/**
- * How much chart to show around a trade.
- *
- * Context is what makes a review chart worth looking at — a five-minute scalp
- * drawn on six minutes of bars tells you nothing about where price came from,
- * which is the whole question when the setup was a level. But a fixed window is
- * wrong at both ends: four hours is generous around a scalp and invisible around
- * a two-day swing.
- *
- * So the window scales with the trade and then stops. Three times the hold on
- * each side, never less than three hours (enough to see the session build), never
- * more than a day and a half (beyond which M1 stops being the right resolution
- * and the payload stops being small).
- */
-export function contextWindow(openedAt: Date, closedAt: Date) {
-  const holdMs = Math.max(60_000, closedAt.getTime() - openedAt.getTime());
-  const pad = Math.min(Math.max(holdMs * 3, 3 * 3600_000), 36 * 3600_000);
-  return { from: new Date(openedAt.getTime() - pad), to: new Date(closedAt.getTime() + pad) };
-}
+// Re-exported so callers have one place to reach for anything candle-shaped.
+export { normalizeSymbol, contextWindow, fetchWindow };
 
 /** One-minute bars for a window, oldest first. Aggregation to M5/M15 happens on the client. */
 export async function loadBars(symbol: string, from: Date, to: Date): Promise<Candle[]> {
@@ -83,4 +51,41 @@ export async function hasBarsAround(symbol: string, at: Date): Promise<boolean> 
       between(priceBars.t, new Date(at.getTime() - halfDay), new Date(at.getTime() + halfDay)),
     ));
   return (row?.n ?? 0) > 0;
+}
+
+export interface MissingDay {
+  /** YYYY-MM-DD, UTC. */
+  day: string;
+  /** How many of that day's trades have no candle at the minute they happened. */
+  trades: number;
+}
+
+/**
+ * Which trading days have no price history behind them.
+ *
+ * Measured per trade rather than per day, because "this day has some bars" is
+ * not the question — a day half-filled by a failed fetch would pass that test
+ * and still leave charts blank. Asking whether each position has a bar at the
+ * minute it opened is exact, and the count it returns is directly meaningful:
+ * twelve trades that day cannot be charted.
+ */
+export async function missingTradingDays(accountId: string, symbol: string): Promise<MissingDay[]> {
+  const sym = normalizeSymbol(symbol);
+  const dayExpr = sql<string>`to_char(date_trunc('day', ${positions.openedAt} AT TIME ZONE 'UTC'), 'YYYY-MM-DD')`;
+  const rows = await db
+    .select({ day: dayExpr, trades: sql<number>`count(*)::int` })
+    .from(positions)
+    .where(and(
+      eq(positions.accountId, accountId),
+      sql`NOT EXISTS (
+        SELECT 1 FROM ${priceBars} b
+        WHERE b.symbol = ${sym} AND b.t = date_trunc('minute', ${positions.openedAt})
+      )`,
+    ))
+    // Grouped by output ordinal rather than by repeating the expression: the
+    // query builder renders the same column qualified in one place and bare in
+    // the other, and matching them is the planner's job to get right, not ours.
+    .groupBy(sql`1`)
+    .orderBy(sql`1 DESC`);
+  return rows;
 }

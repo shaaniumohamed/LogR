@@ -76,6 +76,7 @@ AUTH_GOOGLE_ID    <from Google>
 AUTH_GOOGLE_SECRET
 AUTH_URL          https://YOUR-APP.vercel.app
 ALLOWED_EMAILS    you@example.com,friend@example.com   (optional)
+TWELVEDATA_API_KEY  <free key, for automatic candles>  (optional)
 ```
 
 `ALLOWED_EMAILS` is the private-beta gate: leave it empty and anyone with a Google
@@ -105,14 +106,42 @@ see the reconciliation screen before anything is saved.
 **Do not import the Trading Analytics PDF** — it is a summary of totals with no
 per-trade rows. The importer detects it and says so rather than failing obscurely.
 
-## Importing price history
+## The daily loop
 
-**Import → Price history.** Optional, and it needs no extra configuration or
-service — price bars live in the same Neon database.
+1. Exness Personal Area → **Trading → History of orders → Download CSV**
+2. Drop it on **Import → Trades**
+3. Annotate the few that mattered, in **Review**
 
-Any CSV works as long as each row carries a timestamp followed by open, high, low
-and close; the separator, the column order and whether there is a header are all
-worked out from the file. Free sources:
+That is the whole thing. Price history is **not** a daily job — see below.
+
+## Price history
+
+Two ways in, and they solve different problems.
+
+### Automatic (recommended)
+
+Set `TWELVEDATA_API_KEY` and the app fetches candles itself:
+
+- **On a trade with no chart** — a button that pulls that whole day in one call,
+  so every other trade you took that day gets its chart at the same time.
+- **On Import → Price history** — a backfill that walks every trading day with
+  no candles behind it, paced to eight calls a minute because that is what the
+  free plan allows.
+
+Get the key at **twelvedata.com** (free, no card), then add it in Vercel →
+Settings → Environment Variables and redeploy. The free allowance is 8 calls a
+minute and 800 a day; since one call covers a full trading day, 800 is more than
+a year of history.
+
+Coverage is measured per trade, not per day — a day half-filled by an
+interrupted backfill still shows as missing, because that is what it is.
+
+### From a file
+
+For history further back than the service reaches, or if you would rather not
+use one. Any CSV works as long as each row carries a timestamp followed by open,
+high, low and close; the separator, the column order and whether there is a
+header are all worked out from the file. Free sources:
 
 | Source | Format | Time zone |
 |---|---|---|
@@ -120,12 +149,20 @@ worked out from the file. Free sources:
 | Dukascopy historical feed | CSV with a header | UTC |
 | MT5 desktop / TradingView chart export | CSV with a header | the platform's own |
 
-Before anything is saved the file is checked against your own fills: a fill
-happened at a price the market was really trading, so it must sit inside the high
-and low of the minute it happened in. The screen reports what share of your fills
-pass, and if the file is simply in the wrong zone it works out the shift and
-offers to apply it. A file that spans a daylight-saving change is recognised as
-such, because no single shift can fix one.
+### The check that applies to both
+
+Candles are verified against your own fills before they are stored, whichever way
+they arrived. A fill happened at a price the market was really trading, so it has
+to sit inside the high and low of the minute it happened in.
+
+The file importer reports what share of your fills pass, works out the shift if
+the file is simply in the wrong zone, and recognises a file spanning a
+daylight-saving change — no single shift can fix one of those, so it points at
+the source-zone setting instead.
+
+The fetcher applies the same test and **refuses to store** anything that fails
+it, because a service answering in the wrong zone or handing back a different
+instrument under a similar ticker looks like nothing at all on a chart.
 
 Bars are stored at one minute only; five-minute, fifteen-minute and hourly views
 are rolled up in the browser. Roughly 40 MB a year for gold.

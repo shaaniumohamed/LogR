@@ -3,8 +3,9 @@ import { notFound } from "next/navigation";
 import { loadAnnotation } from "@/lib/actions";
 import { loadTradeWithLegs, loadTrades } from "@/lib/queries";
 import { TradeChart } from "@/components/trade-chart";
-import { contextWindow, loadBars } from "@/lib/candles";
+import { contextWindow, fetchWindow, loadBars } from "@/lib/candles";
 import { ChartPanel } from "./chart-panel";
+import { GetCandles } from "./get-candles";
 import { Card, Eyebrow, Note, Stat, StatGrid, money, pct } from "@/components/ui";
 import { Info } from "@/components/info";
 import { AnnotateForm } from "./annotate-form";
@@ -29,6 +30,8 @@ export default async function TradeDetail({ params, searchParams }: {
   // one minute and rolled up in the browser, so the timeframe buttons are free.
   const { from: barsFrom, to: barsTo } = contextWindow(t.openedAt, t.closedAt);
   const bars = await loadBars(t.symbol, barsFrom, barsTo);
+  // Whole days, so one call covers every other trade taken that day too.
+  const toFetch = fetchWindow(t.openedAt, t.closedAt);
 
   const fills = (withLegs?.legs ?? []).flatMap((l) => [
     { kind: "in" as const, time: Math.floor(l.openedAt.getTime() / 1000), price: l.openPrice, lots: l.lots, profit: l.profit },
@@ -144,14 +147,16 @@ export default async function TradeDetail({ params, searchParams }: {
                             invalidation={existing?.invalidation ?? null}
                             direction={t.direction} timeZone={timeZone} />
               </div>
+              <GetCandles symbol={t.symbol} hasKey={!!process.env.TWELVEDATA_API_KEY}
+                          from={toFetch.from.toISOString()} to={toFetch.to.toISOString()} />
               <Info title="Why there are no candles here">
                 Your broker export contains your fills, not the market&rsquo;s price history — so
                 this shows exactly where you entered and exited, but not what price did in
                 between.
                 <br /><br />
-                Import a price file on the <b>Import → Price history</b> screen and this becomes
-                a real chart with your fills drawn on it, which you can then mark up. It is free
-                and takes one file.
+                Fetching pulls the whole day in one go, so every other trade you took that day
+                gets its chart at the same time. Failing that, the{" "}
+                <b>Import → Price history</b> screen takes a CSV.
               </Info>
             </>
           )}
