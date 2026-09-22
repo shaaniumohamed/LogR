@@ -150,6 +150,43 @@ export default async function Settings() {
       </Card>
 
       <Card>
+        <Eyebrow>Take your journal with you</Eyebrow>
+        <Verdict>
+          Everything on <b>{ctx.account.nickname}</b> — trades, fills, notes, rules, weekly
+          reviews — in one file you keep.
+        </Verdict>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <a href="/api/export?format=csv" download
+             className="rounded-lg px-3.5 py-2.5 text-[13px] font-semibold"
+             style={{ background: "var(--ink)", color: "var(--plane)" }}>
+            Spreadsheet (CSV)
+          </a>
+          <a href="/api/export?format=json" download
+             className="rounded-lg px-3.5 py-2.5 text-[13px] font-semibold"
+             style={{ border: "1px solid var(--line)", color: "var(--ink2)" }}>
+            Everything (JSON)
+          </a>
+        </div>
+        <Info title="Which one, and what is in it">
+          The <b>spreadsheet</b> is one row per trade with your notes flattened alongside —
+          setup, feeling, confluences, mistakes, rules broken, the note itself. That is the
+          shape a spreadsheet, a coach or a statistics package wants.
+          <br /><br />
+          The <b>JSON</b> is the whole thing: every individual fill as your broker reported it,
+          every annotation, your rules and your weekly reviews. That is the shape a restore
+          would need.
+          <br /><br />
+          Neither contains price history. It is public market data shared by every account
+          here, it is by far the largest thing in the database, and none of it is yours.
+          Screenshots are listed but not included — the images live in your own storage bucket.
+          <br /><br />
+          A journal is worth something because it accumulates, and a year of notes about why
+          each trade was taken cannot be reconstructed. Knowing you can walk away with the lot
+          is most of what makes it safe to put the year in.
+        </Info>
+      </Card>
+
+      <Card>
         <Eyebrow>Speed</Eyebrow>
         <Verdict>
           The database is <b className={speed.tone === "pos" ? "pos" : speed.tone === "neg" ? "neg" : undefined}>
