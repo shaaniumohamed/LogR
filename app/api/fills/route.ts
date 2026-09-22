@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { and, between, eq } from "drizzle-orm";
-import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { positions } from "@/lib/db/schema";
-import { getOrCreateAccount } from "@/lib/account";
+import { requestContext } from "@/lib/session";
 
 export const runtime = "nodejs";
 
@@ -20,9 +19,8 @@ export const runtime = "nodejs";
  * kilobytes, and the client only ever iterates them.
  */
 export async function GET(req: Request) {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const url = new URL(req.url);
   const from = new Date(url.searchParams.get("from") ?? "");
@@ -31,7 +29,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Need a from and a to" }, { status: 400 });
   }
 
-  const account = await getOrCreateAccount(userId);
+  const account = ctx.account;
   // Opens and closes are checked separately because they are separate moments;
   // a position opened inside the range but closed outside it still proves an
   // entry price, so the two are queried independently rather than as one span.

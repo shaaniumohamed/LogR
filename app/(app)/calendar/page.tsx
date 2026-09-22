@@ -94,9 +94,9 @@ export default async function CalendarPage({ searchParams }: {
                 <Stat label="Month" value={money0(s.net)} tone={s.net >= 0 ? "pos" : "neg"} sub={count(s.n)} />
                 <Stat label="Days up" value={`${up}/${inMonth.length}`}
                       sub={pct(up / inMonth.length, 0)} />
-                <Stat label="Best day" value={best ? money0(best.net) : "—"} tone="pos"
+                <Stat label="Best day" value={best ? money0(best.net) : "—"} tone={(best?.net ?? 0) >= 0 ? "pos" : "neg"}
                       sub={best ? best.date.slice(8) + " " + monthLabel(month).split(" ")[0].slice(0, 3) : undefined} />
-                <Stat label="Worst day" value={worst ? money0(worst.net) : "—"} tone="neg"
+                <Stat label="Worst day" value={worst ? money0(worst.net) : "—"} tone={(worst?.net ?? 0) >= 0 ? "pos" : "neg"}
                       sub={worst ? worst.date.slice(8) + " " + monthLabel(month).split(" ")[0].slice(0, 3) : undefined} />
               </StatGrid>
             </div>

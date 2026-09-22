@@ -1,4 +1,5 @@
 import { eq, sql } from "drizzle-orm";
+import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { invites, users } from "@/lib/db/schema";
 import { readOrDegrade } from "@/lib/db/schema-check";
@@ -63,7 +64,18 @@ export interface Invite {
   joined: boolean;
 }
 
+/**
+ * Gated here as well as at the call site.
+ *
+ * The settings page already renders this only for owners, but that is
+ * presentation. A function that returns everybody's email address should refuse
+ * on its own account, so that the day it gains a second caller the check does
+ * not have to be remembered again.
+ */
 export async function listInvites(): Promise<Invite[]> {
+  const session = await auth();
+  if (!isOwner(session?.user?.email)) return [];
+
   return readOrDegrade(async () => {
     const inviter = db.select().from(users).as("inviter");
     const rows = await db

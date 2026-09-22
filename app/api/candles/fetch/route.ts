@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { and, between, eq, sql } from "drizzle-orm";
-import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { positions, priceBars } from "@/lib/db/schema";
-import { getOrCreateAccount } from "@/lib/account";
+import { requestContext } from "@/lib/session";
 import { normalizeSymbol } from "@/lib/core/symbols";
 import { checkAlignment } from "@/lib/core/parse-candles";
 import { ProviderError, RATE, authHeaders, buildUrl, normalise } from "@/lib/core/provider-twelvedata";
@@ -22,9 +21,8 @@ const Body = z.object({
 const MAX_MINUTES = RATE.maxBars;
 
 export async function POST(req: Request) {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const apiKey = process.env.TWELVEDATA_API_KEY;
   if (!apiKey) {
@@ -74,7 +72,7 @@ export async function POST(req: Request) {
    * neither failure looks like anything on a chart — the only thing that can
    * tell is a price the trader is known to have transacted at.
    */
-  const account = await getOrCreateAccount(userId);
+  const account = ctx.account;
   const pad = 86_400_000;
   const lo = new Date(from.getTime() - pad), hi = new Date(to.getTime() + pad);
   const [opens, closes] = await Promise.all([

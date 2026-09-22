@@ -13,7 +13,7 @@ export interface CoverageRow { symbol: string; bars: number; from: string; to: s
  * filed under the wrong instrument are not at those timestamps and would sit
  * there forever. This is the undo for that.
  */
-export function CoverageList({ rows }: { rows: CoverageRow[] }) {
+export function CoverageList({ rows, canDelete }: { rows: CoverageRow[]; canDelete: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const router = useRouter();
@@ -41,10 +41,14 @@ export function CoverageList({ rows }: { rows: CoverageRow[] }) {
           <b className="num">{c.symbol}</b>
           <span className="num" style={{ color: "var(--ink2)" }}>{c.bars.toLocaleString("en-US")} candles</span>
           <span style={{ color: "var(--ink3)" }}>{c.from} → {c.to}</span>
-          <button type="button" onClick={() => clear(c.symbol, c.bars)} disabled={busy === c.symbol}
-                  className="tap ml-auto text-[12px]" style={{ color: "var(--ink3)" }}>
-            {busy === c.symbol ? "Removing…" : "Remove"}
-          </button>
+          {/* Shared data: the server refuses this for anyone but an owner, so
+              there is no point offering the button to everybody else. */}
+          {canDelete && (
+            <button type="button" onClick={() => clear(c.symbol, c.bars)} disabled={busy === c.symbol}
+                    className="tap ml-auto text-[12px]" style={{ color: "var(--ink3)" }}>
+              {busy === c.symbol ? "Removing…" : "Remove"}
+            </button>
+          )}
         </li>
       ))}
     </ul>

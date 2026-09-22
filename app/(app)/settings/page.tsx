@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
-import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { requireContext } from "@/lib/session";
@@ -29,11 +28,12 @@ export default async function Settings() {
 
   async function save(formData: FormData) {
     "use server";
-    const s = await auth();
-    const uid = s!.user!.id!;
+    // Re-resolved on the server rather than trusted from the form: a server
+    // action is a public endpoint, and this one writes to a user row.
+    const me = await requireContext();
     const tz = String(formData.get("timeZone") ?? "").trim();
     if (!isValidZone(tz)) return;
-    await db.update(users).set({ timeZone: tz }).where(eq(users.id, uid));
+    await db.update(users).set({ timeZone: tz }).where(eq(users.id, me.userId));
     revalidatePath("/", "layout");
   }
 

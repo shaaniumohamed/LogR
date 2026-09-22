@@ -2,10 +2,9 @@ import { NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
-import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { importBatches, positions, zoneTrades } from "@/lib/db/schema";
-import { getOrCreateAccount } from "@/lib/account";
+import { requestContext } from "@/lib/session";
 import { clusterPositions } from "@/lib/core/cluster";
 import { tradesTag } from "@/lib/queries";
 import type { Position } from "@/lib/core/types";
@@ -44,16 +43,18 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  // The ACTIVE account. A trader with a live account and a demo importing a
+  // statement must have it land in the one they are looking at, and the old
+  // helper returned whichever row the database offered first.
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const { userId, account } = ctx;
 
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Malformed import payload" }, { status: 400 });
   }
   const { filename, reportedNet, positions: rows } = parsed.data;
-  const account = await getOrCreateAccount(userId);
 
   const [batch] = await db.insert(importBatches).values({
     userId, accountId: account.id, filename, rowsParsed: rows.length, reportedNet,

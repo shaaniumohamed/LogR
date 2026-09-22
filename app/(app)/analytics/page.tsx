@@ -343,6 +343,9 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
 
   const overWeekend = trades.filter((t) => heldOverWeekend(t.openedAt, t.closedAt));
   const weekendStats = computeStats(overWeekend);
+  const worstWeekend = overWeekend.length
+    ? Math.min(...overWeekend.map((t) => t.netPnl))
+    : 0;
   const cfWeekend = overWeekend.length
     ? counterfactual(trades, (t) => heldOverWeekend(t.openedAt, t.closedAt))
     : null;
@@ -814,8 +817,8 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
                     sub={`${pct(weekendStats.winRate, 0)} won`} />
               <Stat label="Their total" value={money0(weekendStats.net)}
                     tone={weekendStats.net >= 0 ? "pos" : "neg"} />
-              <Stat label="Worst one" value={money0(Math.min(...overWeekend.map((t) => t.netPnl)))}
-                    tone="neg" />
+              <Stat label="Worst one" value={money0(worstWeekend)}
+                    tone={worstWeekend >= 0 ? "pos" : "neg"} />
             </StatGrid>
           </div>
           {cfWeekend && (

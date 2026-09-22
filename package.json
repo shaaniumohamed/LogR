@@ -15,7 +15,10 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "test:isolation": "node scripts/isolation-check.mjs",
+    "seed:dev": "node scripts/seed-dev.mjs",
+    "ui:audit": "node scripts/ui-audit.mjs"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "1.11.3",

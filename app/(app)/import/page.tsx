@@ -65,7 +65,7 @@ function TradesTab() {
 }
 
 async function CandlesTab() {
-  const { account } = await requireContext();
+  const { account, isOwner: ctxIsOwner } = await requireContext();
 
   // Default to whatever this trader actually trades, rather than making them
   // type it. Counted off the cached trade list rather than with a GROUP BY of
@@ -105,13 +105,14 @@ async function CandlesTab() {
       {coverage.length > 0 && (
         <div className="card p-5">
           <div className="eyebrow">Already held</div>
-          <CoverageList rows={coverage.map((c) => ({
+          <CoverageList canDelete={ctxIsOwner} rows={coverage.map((c) => ({
             symbol: c.symbol, bars: c.bars,
             from: c.from.toISOString().slice(0, 10), to: c.to.toISOString().slice(0, 10),
           }))} />
           <p className="mt-3 text-[11px]" style={{ color: "var(--ink3)" }}>
             Price history is shared, not per-account — a gold candle is the same candle for
-            everyone, so importing a month covers it for good.
+            everyone, so importing a month covers it for good. Your trades and notes are not
+            shared with anyone.
           </p>
         </div>
       )}

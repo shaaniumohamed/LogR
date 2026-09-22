@@ -144,8 +144,10 @@ export default async function DayPage({ params }: { params: Promise<{ date: stri
         <div className="mt-4">
           <StatGrid cols={4}>
             <Stat label="Won" value={pct(s.winRate)} sub={`${s.wins}W · ${s.losses}L`} />
-            <Stat label="Best trade" value={money0(best.netPnl)} tone="pos" sub={fmtTime.format(best.closedAt)} />
-            <Stat label="Worst trade" value={money0(worst.netPnl)} tone="neg" sub={fmtTime.format(worst.closedAt)} />
+            <Stat label="Best trade" value={money0(best.netPnl)} tone={best.netPnl >= 0 ? "pos" : "neg"}
+                  sub={fmtTime.format(best.closedAt)} />
+            <Stat label="Worst trade" value={money0(worst.netPnl)} tone={worst.netPnl >= 0 ? "pos" : "neg"}
+                  sub={fmtTime.format(worst.closedAt)} />
             <Stat label="Average trade" value={money(s.expectancy)} tone={s.expectancy >= 0 ? "pos" : "neg"}
                   sub={`${s.avgHoldMinutes.toFixed(0)} min hold`} />
           </StatGrid>

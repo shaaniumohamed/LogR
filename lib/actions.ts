@@ -2,26 +2,49 @@
 
 import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
-import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { invites, tradeAnnotations, tradeScreenshots, tradingAccounts, tradingRules, users, weeklyNotes } from "@/lib/db/schema";
+import { invites, tradeAnnotations, tradeScreenshots, tradingAccounts, tradingRules, users, weeklyNotes, zoneTrades } from "@/lib/db/schema";
 import { viewUrl } from "@/lib/storage";
 import { requestContext } from "@/lib/session";
 import { isOwner, looksLikeEmail, normaliseEmail } from "@/lib/access";
 import type { Drawing } from "@/lib/core/types";
-import { getOrCreateAccount } from "@/lib/account";
 import { readOrDegrade } from "@/lib/db/schema-check";
 
 /**
  * Annotations are keyed to identityHash, never to a row id, so re-deriving zone
  * trades after a parser change cannot orphan anything the trader wrote.
  */
-export async function saveAnnotation(identityHash: string, form: FormData) {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false, error: "Not signed in" };
+/**
+ * Does this trade belong to the account writing about it?
+ *
+ * The identity hash arrives from the browser, so it is a claim rather than a
+ * fact. Without this, a signed-in person could create annotation rows against
+ * hashes they do not own — not a way to read anyone else's journal, since every
+ * read is scoped to the account, but a way to put rows in the database that
+ * nothing should have put there. Notes and mark-up deserve the same check the
+ * screenshot upload already makes.
+ */
+async function ownsTrade(accountId: string, identityHash: string): Promise<boolean> {
+  const [row] = await db.select({ h: zoneTrades.identityHash }).from(zoneTrades)
+    .where(and(eq(zoneTrades.accountId, accountId), eq(zoneTrades.identityHash, identityHash)))
+    .limit(1);
+  return !!row;
+}
 
-  const account = await getOrCreateAccount(userId);
+export async function saveAnnotation(identityHash: string, form: FormData) {
+  /*
+   * The ACTIVE account, not whichever one the database happened to return
+   * first. Before multi-account existed those were the same thing; once a
+   * trader has two, writing a note while looking at the second one would have
+   * filed it against the first.
+   */
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return { ok: false, error: "Not signed in" };
+  const { userId, account } = ctx;
+  if (!(await ownsTrade(account.id, identityHash))) {
+    return { ok: false, error: "No such trade on this account." };
+  }
+
   const str = (k: string) => {
     const v = form.get(k);
     const s = typeof v === "string" ? v.trim() : "";
@@ -87,10 +110,12 @@ export async function saveAnnotation(identityHash: string, form: FormData) {
  * Only the drawings column is written, so the two can never overwrite each other.
  */
 export async function saveDrawings(identityHash: string, drawings: Drawing[]) {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false, error: "Not signed in" };
-  const account = await getOrCreateAccount(userId);
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return { ok: false, error: "Not signed in" };
+  const { userId, account } = ctx;
+  if (!(await ownsTrade(account.id, identityHash))) {
+    return { ok: false, error: "No such trade on this account." };
+  }
 
   const clean = drawings.slice(0, 40).map((d) => ({
     id: String(d.id).slice(0, 40),
@@ -136,9 +161,9 @@ export async function loadAnnotation(accountId: string, identityHash: string) {
  * 13:00 when they were actually trading at 21:00.
  */
 export async function setTimeZone(tz: string) {
-  const session = await auth();
-  const userId = session?.user?.id;
-  if (!userId) return { ok: false };
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return { ok: false };
+  const userId = ctx.userId;
   try {
     new Intl.DateTimeFormat("en", { timeZone: tz });
   } catch {

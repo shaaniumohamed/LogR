@@ -85,6 +85,9 @@ export default async function WeekPage({ params }: { params: Promise<{ monday: s
       href: `/day/${d}`,
     }));
 
+  const bestDay = dayRows.length ? Math.max(...dayRows.map((d) => d.value)) : 0;
+  const worstDay = dayRows.length ? Math.min(...dayRows.map((d) => d.value)) : 0;
+
   const tilt = tiltProfile(inWeek, timeZone, 5);
   const fmtTime = new Intl.DateTimeFormat("en-GB", {
     weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone,
@@ -148,8 +151,8 @@ export default async function WeekPage({ params }: { params: Promise<{ monday: s
                 <Stat label="Won" value={pct(s.winRate)} sub={`${s.wins}W · ${s.losses}L`} />
                 <Stat label="Average trade" value={money(s.expectancy)}
                       tone={s.expectancy >= 0 ? "pos" : "neg"} />
-                <Stat label="Best day" value={money0(Math.max(...dayRows.map((d) => d.value)))} tone="pos" />
-                <Stat label="Worst day" value={money0(Math.min(...dayRows.map((d) => d.value)))} tone="neg" />
+                <Stat label="Best day" value={money0(bestDay)} tone={bestDay >= 0 ? "pos" : "neg"} />
+                <Stat label="Worst day" value={money0(worstDay)} tone={worstDay >= 0 ? "pos" : "neg"} />
               </StatGrid>
             </div>
           </Card>

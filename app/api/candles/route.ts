@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { and, between, eq, sql } from "drizzle-orm";
-import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { requestContext } from "@/lib/session";
 import { priceBars } from "@/lib/db/schema";
 import { normalizeSymbol } from "@/lib/candles";
 
@@ -26,8 +26,8 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Malformed candle payload" }, { status: 400 });
@@ -67,10 +67,26 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true, written, symbol });
 }
 
-/** Clear price history, so a bad import can be undone rather than lived with. */
+/**
+ * Clear price history, so a bad import can be undone rather than lived with.
+ *
+ * OWNERS ONLY, and that restriction is about the sharing rather than about
+ * trust. Price bars are deliberately common to everyone here — a gold candle at
+ * 14:32 is the same candle for every account, and one person importing a month
+ * covers the rest. The flip side is that one person deleting a year takes it
+ * from everybody, and every other button in this app can only affect the person
+ * pressing it. Adding candles stays open, because adding is correctable and
+ * has to pass the alignment check against the importer's own fills.
+ */
 export async function DELETE(req: Request) {
-  const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  if (!ctx.isOwner) {
+    return NextResponse.json({
+      error: "Only an owner can delete price history.",
+      detail: "Candles are shared by everyone using this journal, so removing them would remove them for everybody. Ask whoever runs it.",
+    }, { status: 403 });
+  }
 
   const url = new URL(req.url);
   const symbol = normalizeSymbol(url.searchParams.get("symbol") ?? "");

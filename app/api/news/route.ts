@@ -44,11 +44,19 @@ export async function POST(req: Request) {
     if (toYear < fromYear || toYear - fromYear > 30 || fromYear < 1990 || toYear > 2100) {
       return NextResponse.json({ error: "That is not a sensible range of years." }, { status: 400 });
     }
-    // Cleared first so a fix to the rule replaces the old answers rather than
-    // sitting beside them.
-    await clearDerived();
+    /*
+     * Cleared first so a fix to the rule replaces the old answers rather than
+     * sitting beside them — but only by an owner.
+     *
+     * The calendar is shared, like the candles. Anyone may add to it, because
+     * adding is additive and a release that happened happened. Wiping it is the
+     * one action here that takes something away from other people, so it is
+     * kept to the person who runs the journal. For everyone else the insert
+     * simply skips what is already stored.
+     */
+    if (ctx.isOwner) await clearDerived();
     const stored = await saveEvents(payrollDates(fromYear, toYear));
-    return NextResponse.json({ ok: true, stored, kind: "derived" });
+    return NextResponse.json({ ok: true, stored, kind: "derived", replaced: ctx.isOwner });
   }
 
   const events = parsed.data.events.map((e) => ({
