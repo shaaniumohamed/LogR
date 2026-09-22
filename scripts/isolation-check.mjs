@@ -57,6 +57,20 @@ for (const [path, init] of [
   check(`${path} refuses a stranger`, r.status === 401, `got ${r.status}`);
 }
 
+/*
+ * /api/health is open on purpose — it diagnoses a database too old to sign in
+ * with, and a check you need a session for is useless when sessions are what is
+ * broken. Open on purpose still has to mean open to NOTHING ELSE, so what it
+ * returns is searched for the markers rather than taken on trust.
+ */
+{
+  const r = await as(null, "/api/health");
+  const body = await r.text();
+  check("/api/health answers a stranger", r.status === 200 || r.status === 503, `got ${r.status}`);
+  check("/api/health leaks no email address", !/@/.test(body), body.slice(0, 120));
+  check("/api/health leaks no journal data", !/SECRET|alice|bob/i.test(body), body.slice(0, 120));
+}
+
 console.log("\nA SIGNED-IN USER WHO IS NOT IN THE DATABASE");
 {
   const r = await as("mallory", "/dashboard");

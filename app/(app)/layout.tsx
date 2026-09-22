@@ -5,7 +5,8 @@ import { requestContext } from "@/lib/session";
 import { ZoneSync } from "@/components/zone-sync";
 import { TabBar, TopNav } from "@/components/tab-bar";
 import { AccountSwitcher } from "@/components/account-switcher";
-import { schemaIsCurrent } from "@/lib/db/schema-check";
+import { isSchemaBehind, schemaGaps } from "@/lib/db/schema-check";
+import { SchemaGapBanner, SchemaGapScreen } from "@/components/schema-gap";
 
 /**
  * Bottom tab bar on phones, inline nav on desktop. The journal's main session is
@@ -26,12 +27,40 @@ const DESKTOP_EXTRA = [
   { href: "/import", label: "Import" },
 ] as const;
 
+/**
+ * The context, or the news that the database cannot answer for it yet.
+ *
+ * Only a schema gap is turned into a value: anything else is still a fault and
+ * still belongs on the error path, where it can be seen and fixed.
+ */
+async function tryContext(): Promise<{ ok: true; ctx: Awaited<ReturnType<typeof requestContext>> } | { ok: false }> {
+  try {
+    return { ok: true, ctx: await requestContext() };
+  } catch (e) {
+    if (isSchemaBehind(e)) return { ok: false };
+    throw e;
+  }
+}
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   // Both of these are shared, per-request, with whatever page renders inside —
-  // the context is memoised and the schema probe answers from an instance-level
-  // flag once it has succeeded, so the page below adds no crossings of its own
-  // for either. They run together because neither needs the other's answer.
-  const [ctx, schemaOk] = await Promise.all([requestContext(), schemaIsCurrent()]);
+  // the context is memoised and the catalogue answer is kept for the life of the
+  // instance once it comes back complete, so the page below adds no crossings of
+  // its own for either. They run together because neither needs the other's.
+  const [attempt, gaps] = await Promise.all([tryContext(), schemaGaps()]);
+
+  /*
+   * A database older than the code used to end here, and end badly.
+   *
+   * requestContext reads the user row, which now has a column an older database
+   * does not, so it threw — and an error thrown by a LAYOUT is not caught by the
+   * error.tsx inside it. What reached the reader was the platform's own blank
+   * page with a digest on it: no cause, no fix, and no way to tell it apart from
+   * the app being down. The gap is knowable and the fix is two lines, so it is
+   * worth a screen that says both.
+   */
+  if (!attempt.ok) return <SchemaGapScreen missing={gaps ?? []} />;
+  const ctx = attempt.ctx;
   if (!ctx) redirect("/signin");
   // Access removed while they were still signed in. Nothing of theirs is
   // deleted; they simply stop being let through the door.
@@ -58,21 +87,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       <main className="flex-1 py-5 pb-28 sm:pb-8">
         <ZoneSync saved={savedZone} />
-        {!schemaOk && (
-          <div className="card mb-4 p-4" style={{ borderColor: "var(--warn)" }}>
-            <div className="eyebrow" style={{ color: "var(--warn)" }}>Database is behind the app</div>
-            <p className="mt-2 text-[13px] leading-relaxed" style={{ color: "var(--ink2)" }}>
-              Your trades are safe and everything below still works. Chart mark-up and price
-              history are switched off until the database has the tables they need.
-            </p>
-            <code className="num mt-2 block rounded-lg p-2.5 text-[12px]" style={{ background: "var(--s3)" }}>
-              git pull &amp;&amp; npm run db:push
-            </code>
-            <p className="mt-2 text-[11px]" style={{ color: "var(--ink3)" }}>
-              Run it wherever you keep the code. No redeploy needed — reload this page after.
-            </p>
-          </div>
-        )}
+        {!!gaps?.length && <SchemaGapBanner missing={gaps} />}
         {children}
       </main>
 

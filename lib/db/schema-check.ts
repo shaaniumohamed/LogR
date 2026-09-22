@@ -1,6 +1,8 @@
 import { cache } from "react";
 import { sql } from "drizzle-orm";
+import { PgTable, getTableConfig } from "drizzle-orm/pg-core";
 import { db } from "./index";
+import * as schema from "./schema";
 
 /**
  * Is this failure the database being older than the code?
@@ -12,9 +14,12 @@ import { db } from "./index";
  * path and being wrong in that direction would swallow a real error.
  */
 export function isSchemaBehind(e: unknown): boolean {
-  const err = e as { code?: string; message?: string } | null;
+  const err = e as { code?: string; message?: string; cause?: unknown } | null;
   if (err?.code === "42P01" || err?.code === "42703") return true;
-  return /relation .+ does not exist|column .+ does not exist/i.test(err?.message ?? "");
+  if (/relation .+ does not exist|column .+ does not exist/i.test(err?.message ?? "")) return true;
+  // A React Server Component wraps the original in `cause` on its way up, and
+  // by the time a layout catches it the code and message live one level down.
+  return err?.cause ? isSchemaBehind(err.cause) : false;
 }
 
 /**
@@ -34,37 +39,76 @@ export async function readOrDegrade<T>(read: () => Promise<T>, fallback: T): Pro
   }
 }
 
+/** Every table and column the code expects, read out of the schema module itself. */
+export function expectedObjects(): { table: string; columns: string[] }[] {
+  const exported: unknown[] = Object.values(schema);
+  return exported
+    .filter((v): v is PgTable => v instanceof PgTable)
+    .map((t) => getTableConfig(t))
+    .map((t) => ({ table: t.name, columns: t.columns.map((c) => c.name) }));
+}
+
+/**
+ * What the code expects, minus what the database actually has.
+ *
+ * Pure, so it can be tested without a database. A table with nothing present is
+ * named on its own rather than once per column: "invite" is the useful sentence,
+ * "invite.email, invite.note, invite.created_at…" is noise around the same fact.
+ */
+export function missingFrom(
+  expected: { table: string; columns: string[] }[],
+  present: { table: string; column: string }[]
+): string[] {
+  const have = new Map<string, Set<string>>();
+  for (const p of present) {
+    if (!have.has(p.table)) have.set(p.table, new Set());
+    have.get(p.table)!.add(p.column);
+  }
+
+  const missing: string[] = [];
+  for (const e of expected) {
+    const cols = have.get(e.table);
+    if (!cols) { missing.push(e.table); continue; }
+    for (const c of e.columns) if (!cols.has(c)) missing.push(`${e.table}.${c}`);
+  }
+  return missing;
+}
+
 /**
  * Cached on the way up only.
  *
- * Once the migration has run the answer cannot go back to false, so a positive
- * result is worth keeping for the life of the instance. A negative one is
- * re-probed, so the banner disappears on the next request after the fix rather
- * than waiting for a cold start.
+ * Once the migration has run the answer cannot go back to complete, so an empty
+ * result is worth keeping for the life of the instance. Anything else is
+ * re-checked, so the warning disappears on the next request after the fix
+ * rather than waiting for a cold start.
  */
-let current = false;
+let known: string[] | null = null;
 
 /**
- * The two probes run together rather than one after the other. Each is a
- * separate crossing to the database and neither depends on the other, so
- * serialising them doubled the delay in front of every single page for no
- * reason at all.
+ * Which tables and columns the database is missing, or null if it could not be
+ * asked at all — a connection failure is a different problem with a different
+ * answer, and reporting it as "nothing is missing" would send someone looking
+ * in the wrong place.
+ *
+ * One statement against the catalogue, rather than one probe per table. It runs
+ * at most once per instance on a healthy deployment, and the whole answer is a
+ * couple of hundred short rows.
  */
-export const schemaIsCurrent = cache(async (): Promise<boolean> => {
-  if (current) return true;
+export const schemaGaps = cache(async (): Promise<string[] | null> => {
+  if (known?.length === 0) return known;
   try {
-    await Promise.all([
-      db.execute(sql`select "drawings" from "trade_annotation" limit 0`),
-      db.execute(sql`select 1 from "price_bar" limit 0`),
-      db.execute(sql`select 1 from "price_bar_htf" limit 0`),
-      db.execute(sql`select 1 from "trade_screenshot" limit 0`),
-      db.execute(sql`select 1 from "invite" limit 0`),
-      db.execute(sql`select 1 from "trading_rule" limit 0`),
-      db.execute(sql`select 1 from "economic_event" limit 0`),
-    ]);
-    current = true;
+    const rows = await db.execute<{ table_name: string; column_name: string }>(
+      sql`select table_name, column_name from information_schema.columns where table_schema = 'public'`
+    );
+    // The two drivers disagree about the shape of a raw result: node-postgres
+    // returns { rows }, the Neon HTTP driver returns the array itself.
+    const list = (Array.isArray(rows) ? rows : rows.rows) as { table_name: string; column_name: string }[];
+    known = missingFrom(
+      expectedObjects(),
+      list.map((r) => ({ table: r.table_name, column: r.column_name }))
+    );
+    return known;
   } catch {
-    return false;
+    return null;
   }
-  return true;
 });
