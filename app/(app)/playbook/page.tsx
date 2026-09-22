@@ -3,7 +3,8 @@ import { computeStats } from "@/lib/core/metrics";
 import { tagContrast } from "@/lib/core/analysis";
 import { loadTrades, resolvePeriod } from "@/lib/queries";
 import { requireContext } from "@/lib/session";
-import { loadAnnotations } from "@/lib/actions";
+import { loadAnnotations, loadRules } from "@/lib/actions";
+import { Rules, type RuleRow } from "./rules";
 import { confluenceLabel, feelingLabel, mistakeLabel } from "@/lib/core/taxonomy";
 import { PeriodTabs } from "@/components/period-tabs";
 import { Sparkline, VersusBar } from "@/components/charts";
@@ -35,9 +36,10 @@ export default async function Playbook({ searchParams }: {
 }) {
   const period = resolvePeriod((await searchParams).period);
   const { account } = await requireContext();
-  const [{ trades, isEmpty }, notes] = await Promise.all([
+  const [{ trades, isEmpty }, notes, rules] = await Promise.all([
     loadTrades(period),
     loadAnnotations(account.id),
+    loadRules(account.id),
   ]);
 
   if (isEmpty) {
@@ -63,6 +65,41 @@ export default async function Playbook({ searchParams }: {
     .filter(([, xs]) => xs.length < MIN_TRADES)
     .sort((a, b) => b[1].length - a[1].length);
 
+  /*
+   * A rule can only be judged on a trade the trader wrote up AFTER the rule
+   * existed, because the form only offers the rules in force at the time. Using
+   * the annotation's own timestamp rather than the trade's date means a rule
+   * added today still counts against an old trade the moment it is re-saved —
+   * which is exactly what happens when somebody adopts a rule and then goes back
+   * through their history with it in mind.
+   */
+  const written = notes.filter((a) => a.note || a.setup || a.emotion
+    || a.confluences?.length || a.mistakes?.length || a.rulesBroken?.length);
+  const pnlOf = new Map(trades.map((t) => [t.id, t.netPnl]));
+
+  const ruleRows: RuleRow[] = rules.map((r) => {
+    const seen = written.filter((a) => a.updatedAt >= r.createdAt && pnlOf.has(a.identityHash));
+    const broke = seen.filter((a) => a.rulesBroken?.includes(r.id));
+    return {
+      id: r.id, text: r.text, active: r.active,
+      judged: seen.length,
+      broken: broke.length,
+      cost: Math.round(broke.reduce((x, a) => x + (pnlOf.get(a.identityHash) ?? 0), 0) * 100) / 100,
+    };
+  });
+
+  // The score is over trades judged against ANY rule, so adopting a new rule
+  // does not dilute it with trades that never had a chance to break it.
+  const earliestRule = rules.length ? rules.reduce((a, b) => (b.createdAt < a.createdAt ? b : a)).createdAt : null;
+  const judged = earliestRule
+    ? written.filter((a) => a.updatedAt >= earliestRule && pnlOf.has(a.identityHash))
+    : [];
+  const clean = judged.filter((a) => !a.rulesBroken?.length);
+  const broken = judged.filter((a) => a.rulesBroken?.length);
+  const cleanStats = computeStats(clean.map((a) => trades.find((t) => t.id === a.identityHash)!).filter(Boolean));
+  const brokenStats = computeStats(broken.map((a) => trades.find((t) => t.id === a.identityHash)!).filter(Boolean));
+  const discipline = judged.length ? clean.length / judged.length : null;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -79,6 +116,53 @@ export default async function Playbook({ searchParams }: {
           does not.
         </p>
       </div>
+
+      <Card>
+        <Eyebrow>Your rules</Eyebrow>
+        <Verdict>
+          {discipline === null
+            ? "Write down the rules you trade by, and every trade you annotate gets checked against them."
+            : discipline === 1
+              ? `You kept every rule on all ${judged.length} trades you have written up since setting them.`
+              : `You kept every rule on ${pct(discipline, 0)} of the ${judged.length} trades judged against them.`}
+        </Verdict>
+
+        {judged.length >= 8 && broken.length > 0 && clean.length > 0 && (
+          <div className="mt-3">
+            <StatGrid cols={4}>
+              {/* The money is the coloured figure and the count is the note
+                  under it: tinting a headcount red says nothing true. */}
+              <Stat label="Rules kept" value={money0(cleanStats.net)}
+                    tone={cleanStats.net >= 0 ? "pos" : "neg"} sub={count(clean.length)} />
+              <Stat label="Rule broken" value={money0(brokenStats.net)}
+                    tone={brokenStats.net >= 0 ? "pos" : "neg"} sub={count(broken.length)} />
+              <Stat label="Average, kept" value={money(cleanStats.expectancy)}
+                    tone={cleanStats.expectancy >= 0 ? "pos" : "neg"} />
+              <Stat label="Average, broken" value={money(brokenStats.expectancy)}
+                    tone={brokenStats.expectancy >= 0 ? "pos" : "neg"} />
+            </StatGrid>
+          </div>
+        )}
+
+        <Rules rules={ruleRows} />
+
+        <Info title="How a rule gets judged">
+          Only against trades you wrote up <b>after</b> the rule existed, because the form can
+          only offer you the rules you had at the time. That is measured from when you saved the
+          note rather than when the trade happened — so a rule you adopt today starts counting
+          against an old trade the moment you go back and re-save it, which is exactly what
+          adopting a rule and reviewing your history with it in mind looks like.
+          <br /><br />
+          Retiring a rule keeps it in the figures. The trades of last March were judged against
+          the rules in force last March, and removing one would quietly rewrite that.
+        </Info>
+        <Caveat>
+          <b>You are marking your own homework, after the result is known.</b> A trade that made
+          money rarely feels like it broke a rule. The way to get honest numbers out of this is
+          to tag the rule before you look at the outcome — or at least to write up the losers
+          with the same care as the winners.
+        </Caveat>
+      </Card>
 
       {ready.length === 0 ? (
         <Card>

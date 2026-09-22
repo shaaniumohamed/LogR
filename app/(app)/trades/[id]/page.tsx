@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { loadAnnotation, loadScreenshots } from "@/lib/actions";
+import { loadAnnotation, loadRules, loadScreenshots } from "@/lib/actions";
 import { storageConfigured } from "@/lib/storage";
 import { Screenshots } from "./screenshots";
 import { loadTradeWithLegs, loadTrades } from "@/lib/queries";
@@ -36,11 +36,12 @@ export default async function TradeDetail({ params, searchParams }: {
    * a tidier-looking function.
    */
   const { account } = await requireContext();
-  const [{ all, timeZone }, annotation, withLegs, shots] = await Promise.all([
+  const [{ all, timeZone }, annotation, withLegs, shots, rules] = await Promise.all([
     loadTrades("all"),
     loadAnnotation(account.id, id),
     loadTradeWithLegs(account.id, id),
     loadScreenshots(account.id, id),
+    loadRules(account.id),
   ]);
 
   const t = all.find((x) => x.id === id);
@@ -324,7 +325,13 @@ export default async function TradeDetail({ params, searchParams }: {
           know — and it is what turns a list of results into something that can tell you why.
         </Note>
         <div className="mt-4">
-          <AnnotateForm identityHash={t.id} existing={existing} suggestedInvalidation={suggested} nextHref={next} />
+          <AnnotateForm
+            identityHash={t.id}
+            existing={existing}
+            suggestedInvalidation={suggested}
+            nextHref={next}
+            rules={rules.filter((r) => r.active).map((r) => ({ id: r.id, text: r.text }))}
+          />
         </div>
       </Card>
     </div>

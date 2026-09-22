@@ -6,8 +6,11 @@ import { CONFLUENCE_GROUPS, FEELINGS, MISTAKES, SETUPS, TIMEFRAMES } from "@/lib
 
 type Existing = {
   setup: string | null; timeframe: string | null; invalidation: number | null;
-  confluences: string[]; mistakes: string[]; emotion: string | null; note: string | null;
+  confluences: string[]; mistakes: string[]; rulesBroken?: string[];
+  emotion: string | null; note: string | null;
 } | null;
+
+export interface ActiveRule { id: string; text: string }
 
 /** One tappable chip. Big enough for a thumb, and its state is never colour-only. */
 function Chip({ name, value, label, hint, defaultChecked, tone }: {
@@ -18,7 +21,7 @@ function Chip({ name, value, label, hint, defaultChecked, tone }: {
   const accent = tone === "bad" ? "var(--loss)" : tone === "good" ? "var(--profit)" : "var(--c1)";
   return (
     <label title={hint}
-      className="inline-flex min-h-[38px] cursor-pointer select-none items-center rounded-full px-3.5 text-[12.5px] transition-colors"
+      className="inline-flex min-h-[38px] cursor-pointer select-none items-center rounded-2xl px-3.5 py-2 text-left text-[12.5px] leading-snug transition-colors"
       style={on
         ? { background: `color-mix(in srgb, ${accent} 16%, var(--s1))`, border: `1px solid color-mix(in srgb, ${accent} 55%, transparent)`, color: "var(--ink)", fontWeight: 600 }
         : { background: "var(--s1)", border: "1px solid var(--line)", color: "var(--ink2)" }}>
@@ -44,11 +47,13 @@ function Radio({ name, value, label, defaultChecked }: {
   );
 }
 
-export function AnnotateForm({ identityHash, existing, suggestedInvalidation, nextHref }: {
+export function AnnotateForm({ identityHash, existing, suggestedInvalidation, nextHref, rules }: {
   identityHash: string;
   existing: Existing;
   suggestedInvalidation: number;
   nextHref?: string;
+  /** The rules in force, in the trader's own words. */
+  rules: ActiveRule[];
 }) {
   const [pending, start] = useTransition();
   const [saved, setSaved] = useState(false);
@@ -126,6 +131,20 @@ export function AnnotateForm({ identityHash, existing, suggestedInvalidation, ne
           ))}
         </div>
       </Field>
+
+      {rules.length > 0 && (
+        <Field
+          label="Did you break any of your own rules?"
+          help="Your rules, in your words. Leaving one unticked counts as kept, so only tick what you actually broke."
+        >
+          <div className="flex flex-col gap-2">
+            {rules.map((r) => (
+              <Chip key={r.id} name="rulesBroken" value={r.id} label={r.text} tone="bad"
+                    defaultChecked={existing?.rulesBroken?.includes(r.id)} />
+            ))}
+          </div>
+        </Field>
+      )}
 
       <Field label="Note">
         <textarea name="note" rows={3} defaultValue={existing?.note ?? ""}

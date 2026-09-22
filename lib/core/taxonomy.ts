@@ -172,3 +172,25 @@ export const DRAWING_LABELS = [
 
 export const drawingLabel = (key: string) =>
   DRAWING_LABELS.find((d) => d.key === key)?.label ?? key;
+
+/**
+ * Starter rules, offered rather than imposed.
+ *
+ * An empty rules screen gets no rules, and a list written by somebody else gets
+ * ignored. These are the positive form of the mistakes this app already counts,
+ * which means two things: they are in the same vocabulary as everything else,
+ * and each one is a habit the trader can already see the price of before they
+ * decide to adopt it.
+ */
+export const RULE_SUGGESTIONS = [
+  "Only enter inside my zone — never chase price to get in",
+  "Never risk more than my planned size on one idea",
+  "No entry without knowing where the idea is dead",
+  "Never widen a stop once it is set",
+  "Close it when the invalidation is hit, not when it feels better",
+  "Let the runner reach the level before taking it off",
+  "Only trade a level that is still fresh",
+  "No trades against my higher-timeframe bias",
+  "Stop for the day after three losses",
+  "Nothing open into the weekend close",
+] as const;

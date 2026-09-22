@@ -154,6 +154,15 @@ export const tradeAnnotations = pgTable("trade_annotation", {
   invalidationSource: text("invalidation_source"), // zone_geometry | user | setup_rule
   confluences: text("confluences").array().notNull().default([]),
   mistakes: text("mistakes").array().notNull().default([]),
+  /**
+   * Which of the trader's OWN rules this trade broke, by rule id.
+   *
+   * Separate from `mistakes` because they are different things. A mistake is a
+   * shared vocabulary this app supplies; a rule is a sentence the trader wrote
+   * for themselves, and the whole value of it is that breaking one is their own
+   * judgement rather than a category someone else invented.
+   */
+  rulesBroken: text("rules_broken").array().notNull().default([]),
   emotion: text("emotion"),
   note: text("note"),
   /**
@@ -339,3 +348,26 @@ export const weeklyNotes = pgTable("weekly_note", {
   focus: text("focus"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.accountId, t.weekStart] })]);
+
+/**
+ * The rules a trader has set themselves.
+ *
+ * Everything else in this journal is descriptive: here is what happened, here
+ * is what it cost. A rule is the one prescriptive thing, and it is the bridge
+ * between the two — a finding becomes a rule, the rule gets broken or kept, and
+ * the breaking has a price that can be added up.
+ *
+ * Deactivated rather than deleted by default, because a rule that was in force
+ * last March is what the trades of last March were judged against, and removing
+ * it would quietly rewrite that history.
+ */
+export const tradingRules = pgTable("trading_rule", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  accountId: text("account_id").notNull().references(() => tradingAccounts.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** In the trader's own words. Short enough to check against in the moment. */
+  text: text("text").notNull(),
+  active: boolean("active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [index("rule_account_idx").on(t.accountId, t.active)]);

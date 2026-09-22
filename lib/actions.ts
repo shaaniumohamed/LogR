@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { invites, tradeAnnotations, tradeScreenshots, users, weeklyNotes } from "@/lib/db/schema";
+import { invites, tradeAnnotations, tradeScreenshots, tradingRules, users, weeklyNotes } from "@/lib/db/schema";
 import { viewUrl } from "@/lib/storage";
 import { requestContext } from "@/lib/session";
 import { isOwner, looksLikeEmail, normaliseEmail } from "@/lib/access";
@@ -44,6 +44,7 @@ export async function saveAnnotation(identityHash: string, form: FormData) {
     invalidationSource: num("invalidation") === null ? null : "user",
     confluences: form.getAll("confluences").map(String),
     mistakes: form.getAll("mistakes").map(String),
+    rulesBroken: form.getAll("rulesBroken").map(String),
     emotion: str("emotion"),
     note: str("note"),
     updatedAt: new Date(),
@@ -61,6 +62,7 @@ export async function saveAnnotation(identityHash: string, form: FormData) {
         invalidationSource: values.invalidationSource,
         confluences: values.confluences,
         mistakes: values.mistakes,
+        rulesBroken: values.rulesBroken,
         emotion: values.emotion,
         note: values.note,
         updatedAt: values.updatedAt,
@@ -246,4 +248,57 @@ export async function saveWeeklyNote(weekStart: string, form: FormData) {
 
   revalidatePath(`/week/${weekStart}`);
   return { ok: true };
+}
+
+/* --------------------------------------------------------------- rules */
+
+export async function loadRules(accountId: string) {
+  return readOrDegrade(
+    () => db.select().from(tradingRules)
+      .where(eq(tradingRules.accountId, accountId))
+      .orderBy(tradingRules.sortOrder, tradingRules.createdAt),
+    [],
+  );
+}
+
+export async function addRule(_prev: { error?: string } | null, form: FormData) {
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return { error: "Not signed in" };
+
+  const text = String(form.get("text") ?? "").trim().slice(0, 160);
+  if (text.length < 4) return { error: "A rule needs to say something." };
+
+  const existing = await loadRules(ctx.account.id);
+  if (existing.length >= 20) {
+    return { error: "Twenty rules is already more than anyone checks. Retire one first." };
+  }
+  if (existing.some((r) => r.text.toLowerCase() === text.toLowerCase())) {
+    return { error: "That rule is already on the list." };
+  }
+
+  await db.insert(tradingRules).values({
+    accountId: ctx.account.id, userId: ctx.userId, text,
+    sortOrder: existing.length,
+  });
+  revalidatePath("/playbook");
+  return {};
+}
+
+/**
+ * Retiring a rule keeps it, and keeps it counting.
+ *
+ * The trades of last March were judged against the rules that were in force
+ * last March, so deleting one would quietly rewrite that history. Retired rules
+ * stop appearing on the form and stay in the figures.
+ */
+export async function setRuleActive(_prev: unknown, form: FormData) {
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return { error: "Not signed in" };
+
+  const id = String(form.get("id") ?? "");
+  const active = String(form.get("active") ?? "") === "true";
+  await db.update(tradingRules).set({ active })
+    .where(and(eq(tradingRules.id, id), eq(tradingRules.accountId, ctx.account.id)));
+  revalidatePath("/playbook");
+  return {};
 }
