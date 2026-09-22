@@ -38,34 +38,59 @@ carries the identity and we store nothing sensitive.
 ## 3. Auth secret
 
 ```bash
-npx auth secret          # writes AUTH_SECRET for you
-# or: openssl rand -base64 32
+npx auth secret
 ```
+
+It writes `AUTH_SECRET` into `.env.local` for you. `openssl rand -base64 32`
+produces an equivalent value if you would rather paste one in by hand.
 
 ## 4. Create the tables
 
+Two ways in. They end at the same 16 tables — pick the one that matches the
+device in your hand.
+
+**From a computer**, in the project folder, once `.env.local` exists:
+
 ```bash
-npm run db:push          # pushes the schema straight to Neon
+npm run db:push
 ```
 
-Run this again after any `git pull` that changes `lib/db/schema.ts`. It is
-non-destructive for additive changes and prints what it is about to do. The
-checked-in files in `drizzle/` are the same changes as SQL, if you would rather
-apply them by hand.
+It reads `DATABASE_URL` out of `.env.local` and connects to Neon itself. It is
+not a command Vercel runs during a deploy, and not something you paste into the
+Neon console.
+
+**From a browser, including a phone**, with no checkout at all: open the project
+at [console.neon.tech](https://console.neon.tech), choose **SQL Editor**, paste
+the whole of [`drizzle/schema.sql`](drizzle/schema.sql), and run it.
+
+Do one of them again after any `git pull` that changes `lib/db/schema.ts`. And
+check that the pull actually landed — a `git pull` that failed quietly, followed
+by a `db:push` that dutifully applies yesterday's schema, looks exactly like
+`db:push` being broken.
+
+Neither route can cost you a trade. Both only add what is missing, and running
+either one twice does nothing the second time.
+
+The numbered files in `drizzle/` predate the move to `push`. They build 10 of
+the 16 tables and are kept only as history — `drizzle/schema.sql` is the one
+that is complete.
 
 ## 5. Run it
 
 ```bash
 npm install
-npm run dev              # http://localhost:3000
+npm run dev
 ```
+
+The app is then at **http://localhost:3000**.
 
 ## 6. Deploy to Vercel
 
 ```bash
-npm i -g vercel && vercel        # first run links the project
+npm i -g vercel && vercel
 ```
-…or push to GitHub and import the repo at **vercel.com/new**.
+
+The first run links the project. …or push to GitHub and import the repo at **vercel.com/new**.
 
 `vercel.json` pins the framework to `nextjs`. It is there because Vercel decides
 the preset by sniffing the repository when the project is first imported, and an
