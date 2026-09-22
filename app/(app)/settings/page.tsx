@@ -41,6 +41,7 @@ export default async function Settings() {
    * thumbed between.
    */
   const MORE = [
+    { href: "/week", label: "Weekly review", blurb: "Sit down with the week: what worked, what did not, what changes" },
     { href: "/playbook", label: "Playbook", blurb: "Each setup on its own, and what separates its winners" },
     { href: "/import", label: "Import trade history", blurb: "Drop in a broker CSV — re-importing only adds what is new" },
     { href: "/import?tab=candles", label: "Price history", blurb: "Candles behind your charts, and which days are missing them" },

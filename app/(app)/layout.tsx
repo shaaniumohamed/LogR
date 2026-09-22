@@ -20,6 +20,7 @@ const NAV = [
   { href: "/settings", label: "More", icon: "M3 6h14M3 10h14M3 14h14" },
 ] as const;
 const DESKTOP_EXTRA = [
+  { href: "/week", label: "Week" },
   { href: "/playbook", label: "Playbook" },
   { href: "/import", label: "Import" },
 ] as const;

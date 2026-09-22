@@ -316,3 +316,26 @@ export const tradeScreenshots = pgTable("trade_screenshot", {
   caption: text("caption"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [index("screenshot_trade_idx").on(t.accountId, t.identityHash)]);
+
+/**
+ * What the trader concluded about a whole week.
+ *
+ * Three fields rather than one box, because an empty box gets an empty answer.
+ * Naming the three questions — what worked, what did not, what to do about it —
+ * is most of what makes a weekly review happen at all, and it makes the answers
+ * comparable from one week to the next, which a paragraph never is.
+ *
+ * Keyed by the Monday of the week in the TRADER'S zone, so a week here is the
+ * week they lived rather than the one UTC happened to be in.
+ */
+export const weeklyNotes = pgTable("weekly_note", {
+  accountId: text("account_id").notNull().references(() => tradingAccounts.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** YYYY-MM-DD of the Monday. A date string, because it is a label not an instant. */
+  weekStart: text("week_start").notNull(),
+  wentWell: text("went_well"),
+  toFix: text("to_fix"),
+  /** One line. The whole point of the review is that something changes. */
+  focus: text("focus"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.accountId, t.weekStart] })]);

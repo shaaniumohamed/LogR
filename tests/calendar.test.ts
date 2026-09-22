@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   adjacentTradingDay, monthRange, stepMonth, weeksOfMonth,
+  mondayOf, stepWeek, daysOfWeek, weekLabel,
 } from "../lib/core/calendar";
 import { coversFills } from "../lib/core/window";
 import { dayShape, tagContrast } from "../lib/core/analysis";
@@ -207,5 +208,33 @@ describe("tagContrast", () => {
 
   it("says nothing at all when every trade went the same way", () => {
     expect(tagContrast([{ won: true, tags: ["a"] }, { won: true, tags: ["a"] }], 1)).toEqual([]);
+  });
+});
+
+describe("week helpers", () => {
+  it("finds the Monday of a week from any day in it", () => {
+    // 18 September 2026 is a Friday; 21 September is the Monday after.
+    expect(mondayOf("2026-09-18")).toBe("2026-09-14");
+    expect(mondayOf("2026-09-14")).toBe("2026-09-14");
+    expect(mondayOf("2026-09-20")).toBe("2026-09-14"); // Sunday belongs to the week before
+  });
+
+  it("steps whole weeks, across a month and a year", () => {
+    expect(stepWeek("2026-09-14", 1)).toBe("2026-09-21");
+    expect(stepWeek("2026-09-14", -1)).toBe("2026-09-07");
+    expect(stepWeek("2026-12-28", 1)).toBe("2027-01-04");
+  });
+
+  it("lists seven days beginning on the Monday", () => {
+    const d = daysOfWeek("2026-09-14");
+    expect(d.length).toBe(7);
+    expect(d[0]).toBe("2026-09-14");
+    expect(d[6]).toBe("2026-09-20");
+  });
+
+  it("collapses the parts of the label both ends share", () => {
+    expect(weekLabel("2026-09-14")).toBe("14–20 September 2026");
+    expect(weekLabel("2026-09-28")).toBe("28 September – 4 October 2026");
+    expect(weekLabel("2026-12-28")).toBe("28 December 2026 – 3 January 2027");
   });
 });

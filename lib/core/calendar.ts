@@ -94,3 +94,42 @@ export function adjacentTradingDay(days: string[], from: string, dir: -1 | 1): s
   for (let i = days.length - 1; i >= 0; i--) if (days[i] < from) return days[i];
   return null;
 }
+
+/** The Monday of the week a day key falls in, as a day key. */
+export function mondayOf(date: string): string {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+/** Step a week key by whole weeks. */
+export function stepWeek(monday: string, by: number): string {
+  const d = new Date(`${monday}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + by * 7);
+  return d.toISOString().slice(0, 10);
+}
+
+/** The seven day keys of a week, Monday first. */
+export function daysOfWeek(monday: string): string[] {
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(`${monday}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+}
+
+/** "15–21 September 2026", collapsing the parts both ends share. */
+export function weekLabel(monday: string): string {
+  const days = daysOfWeek(monday);
+  const a = new Date(`${days[0]}T12:00:00Z`);
+  const b = new Date(`${days[6]}T12:00:00Z`);
+  const month = (d: Date) => d.toLocaleDateString("en-GB", { month: "long", timeZone: "UTC" });
+  const year = (d: Date) => d.getUTCFullYear();
+  if (month(a) === month(b) && year(a) === year(b)) {
+    return `${a.getUTCDate()}–${b.getUTCDate()} ${month(b)} ${year(b)}`;
+  }
+  if (year(a) === year(b)) {
+    return `${a.getUTCDate()} ${month(a)} – ${b.getUTCDate()} ${month(b)} ${year(b)}`;
+  }
+  return `${a.getUTCDate()} ${month(a)} ${year(a)} – ${b.getUTCDate()} ${month(b)} ${year(b)}`;
+}

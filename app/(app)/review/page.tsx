@@ -155,7 +155,12 @@ export default async function Review({ searchParams }: {
       </div>
 
       <Card>
-        <Eyebrow>Annotation progress</Eyebrow>
+        <div className="flex items-baseline justify-between gap-3">
+          <Eyebrow>Annotation progress</Eyebrow>
+          <Link href="/week" className="tap text-[12px] font-semibold" style={{ color: "var(--c1)" }}>
+            Weekly review →
+          </Link>
+        </div>
         <Verdict>
           {inSpan.length === 0
             ? `No trades ${span === "week" ? "this week" : span === "month" ? "this month" : "in this period"} yet.`

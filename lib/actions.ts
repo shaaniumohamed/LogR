@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { invites, tradeAnnotations, tradeScreenshots, users } from "@/lib/db/schema";
+import { invites, tradeAnnotations, tradeScreenshots, users, weeklyNotes } from "@/lib/db/schema";
 import { viewUrl } from "@/lib/storage";
 import { requestContext } from "@/lib/session";
 import { isOwner, looksLikeEmail, normaliseEmail } from "@/lib/access";
@@ -209,4 +209,41 @@ export async function loadScreenshots(accountId: string, identityHash: string) {
       height: r.height,
     }));
   }, []);
+}
+
+/** The trader's own conclusions about a week. */
+export async function loadWeeklyNote(accountId: string, weekStart: string) {
+  return readOrDegrade(() => db.query.weeklyNotes.findFirst({
+    where: and(eq(weeklyNotes.accountId, accountId), eq(weeklyNotes.weekStart, weekStart)),
+  }), undefined);
+}
+
+/**
+ * Saved as one row per week, replacing whatever was there.
+ *
+ * No history of edits: a weekly review is a conclusion, not a log, and anyone
+ * revising last week's note is correcting it rather than adding to it.
+ */
+export async function saveWeeklyNote(weekStart: string, form: FormData) {
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return { ok: false, error: "Not signed in" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) return { ok: false, error: "Bad week" };
+
+  const text = (k: string) => {
+    const v = String(form.get(k) ?? "").trim().slice(0, 2000);
+    return v === "" ? null : v;
+  };
+  const values = {
+    accountId: ctx.account.id, userId: ctx.userId, weekStart,
+    wentWell: text("wentWell"), toFix: text("toFix"), focus: text("focus"),
+    updatedAt: new Date(),
+  };
+
+  await db.insert(weeklyNotes).values(values).onConflictDoUpdate({
+    target: [weeklyNotes.accountId, weeklyNotes.weekStart],
+    set: { wentWell: values.wentWell, toFix: values.toFix, focus: values.focus, updatedAt: values.updatedAt },
+  });
+
+  revalidatePath(`/week/${weekStart}`);
+  return { ok: true };
 }

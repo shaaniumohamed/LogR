@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { computeStats, hourIn, localDayKey } from "@/lib/core/metrics";
 import { byLocalDay, dayShape, heldOverWeekend, sessionOf } from "@/lib/core/analysis";
-import { adjacentTradingDay, dayLabel, monthLabel } from "@/lib/core/calendar";
+import { adjacentTradingDay, dayLabel, mondayOf, monthLabel } from "@/lib/core/calendar";
 import { loadTrades } from "@/lib/queries";
 import { requireContext } from "@/lib/session";
 import { loadAnnotations } from "@/lib/actions";
@@ -55,9 +55,15 @@ export default async function DayPage({ params }: { params: Promise<{ date: stri
         <div className="truncate text-[15px] font-semibold">
           {dayLabel(date, { weekday: "long", day: "numeric", month: "long" })}
         </div>
-        <Link href={`/calendar?month=${month}`} className="tap text-[11px]" style={{ color: "var(--c1)" }}>
-          {monthLabel(month)} ›
-        </Link>
+        <div className="flex items-center justify-center gap-3 text-[11px]">
+          <Link href={`/week/${mondayOf(date)}`} className="tap" style={{ color: "var(--c1)" }}>
+            this week
+          </Link>
+          <span style={{ color: "var(--line)" }}>·</span>
+          <Link href={`/calendar?month=${month}`} className="tap" style={{ color: "var(--c1)" }}>
+            {monthLabel(month)}
+          </Link>
+        </div>
       </div>
       <NavArrow to={next} glyph="›" label="Next trading day" />
     </div>
