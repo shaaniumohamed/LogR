@@ -5,6 +5,8 @@ import { monthLabel } from "@/lib/core/calendar";
 import { loadTrades, resolvePeriod } from "@/lib/queries";
 import { requireContext } from "@/lib/session";
 import { loadAnnotations } from "@/lib/actions";
+import { newsWindow } from "@/lib/core/news";
+import { loadEvents } from "@/lib/news";
 import { confluenceLabel, feelingLabel, mistakeLabel } from "@/lib/core/taxonomy";
 import { PeriodTabs } from "@/components/period-tabs";
 import { Filters, Segmented, type FilterGroup } from "@/components/filters";
@@ -129,6 +131,7 @@ export default async function Trades({ searchParams }: {
     ? (sp.level!.split(":").map(Number) as [number, number])
     : null;
 
+  const news = oneOf(sp.news, ["in", "out"] as const);
   const result = oneOf(sp.result, RESULTS.map((r) => r.value));
   const shape = oneOf(sp.shape, SHAPES.map((s) => s.value));
   const day = oneOf(sp.day, WEEKDAYS);
@@ -190,6 +193,18 @@ export default async function Trades({ searchParams }: {
       (byHash.get(t.id)?.drawings ?? []).some((d) =>
         Math.min(d.low, d.high) <= hi && Math.max(d.low, d.high) >= lo));
   }
+  if (news) {
+    // Only loaded when the filter is on: a release calendar is shared by every
+    // account here, and reading it to answer a question nobody asked would be
+    // a crossing on every visit to this page.
+    const span = pool.length
+      ? await loadEvents(
+          new Date(pool[pool.length - 1].openedAt.getTime() - 3600_000),
+          new Date(pool[0].closedAt.getTime() + 3600_000),
+        )
+      : [];
+    filtered = filtered.filter((t) => (newsWindow(t.openedAt, span).event !== null) === (news === "in"));
+  }
   if (tagged) {
     const has = (t: ZoneTrade) => {
       const a = byHash.get(t.id);
@@ -210,6 +225,7 @@ export default async function Trades({ searchParams }: {
       period, date: onDate, result, shape, day, session: sess, hour, hold,
       direction: dir, month, setup, tf, emotion, mistake, confluence, tagged,
       level: band ? sp.level! : null,
+      news,
       sort: sort === "recent" ? null : sort,
       page: page > 1 ? String(page) : null, ...patch,
     };
@@ -246,6 +262,8 @@ export default async function Trades({ searchParams }: {
       ? [{ key: "month", label: "Month", active: month,
            options: monthsUsed.map((m) => ({ value: m, label: monthLabel(m) })) } as FilterGroup]
       : []),
+    { key: "news", label: "Economic releases", active: news, options: [
+        { value: "in", label: "Into the news" }, { value: "out", label: "Away from news" }] },
     ...(notes.length
       ? [{ key: "tagged", label: "Your notes", active: tagged, options: [
             { value: "yes", label: "Annotated" }, { value: "no", label: "Not annotated yet" }] } as FilterGroup]

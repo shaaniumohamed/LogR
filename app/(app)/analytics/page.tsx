@@ -7,6 +7,8 @@ import { holdBucket, hourWeekdayGrid, sessionOf, weekdayIn, counterfactual, held
 import { distribution } from "@/lib/core/distribution";
 import { tiltProfile } from "@/lib/core/tilt";
 import { clusterLevels, type Mark } from "@/lib/core/levels";
+import { NEWS_WINDOW_MINUTES, newsWindow } from "@/lib/core/news";
+import { loadEvents } from "@/lib/news";
 import { loadExits, loadTrades, resolvePeriod } from "@/lib/queries";
 import { requireContext } from "@/lib/session";
 import { PeriodTabs } from "@/components/period-tabs";
@@ -145,6 +147,21 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
     loadAnnotations(account.id),
     loadExits(account.id, period),
   ]);
+
+  /*
+   * Economic releases covering the period, if any have been imported.
+   *
+   * Loaded after the trades rather than beside them because the window to ask
+   * for depends on when the trades actually are — reading every release ever
+   * stored, shared across every account here, to answer a question about one
+   * month would be the wrong shape entirely.
+   */
+  const events = trades.length
+    ? await loadEvents(
+        new Date(trades[trades.length - 1].openedAt.getTime() - 3600_000),
+        new Date(trades[0].closedAt.getTime() + 3600_000),
+      )
+    : [];
 
   if (isEmpty) {
     return <Empty title="Nothing to analyse yet" body="Import your broker history and the patterns appear here automatically — nothing to fill in." />;
@@ -305,6 +322,25 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
   const faster = tilt ? tilt.afterWin.gapMinutes - tilt.afterLoss.gapMinutes : 0;
   const bigger = tilt && tilt.afterWin.lots > 0 ? tilt.afterLoss.lots / tilt.afterWin.lots - 1 : 0;
 
+  /*
+   * Trades taken into a high-impact release.
+   *
+   * This is the one confluence tag the app can check rather than trust. Gold
+   * moves several dollars in seconds on a dollar print and the spread widens to
+   * many times its normal width, so a level that has held all week stops
+   * meaning anything for twenty minutes — and self-reported tagging is least
+   * reliable about exactly those trades.
+   */
+  const inNews = new Set(
+    events.length
+      ? trades.filter((t) => newsWindow(t.openedAt, events).event !== null).map((t) => t.id)
+      : [],
+  );
+  const newsTrades = trades.filter((t) => inNews.has(t.id));
+  const newsStats = computeStats(newsTrades);
+  const calmStats = computeStats(trades.filter((t) => !inNews.has(t.id)));
+  const cfNews = newsTrades.length ? counterfactual(trades, (t) => inNews.has(t.id)) : null;
+
   const overWeekend = trades.filter((t) => heldOverWeekend(t.openedAt, t.closedAt));
   const weekendStats = computeStats(overWeekend);
   const cfWeekend = overWeekend.length
@@ -383,6 +419,53 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
             bends toward the outcome. Tag it the same evening, before the number has had time
             to rewrite the feeling.
           </Info>
+        </Card>
+      )}
+
+      {newsTrades.length >= MIN && cfNews && (
+        <Card>
+          <Eyebrow>Trades into the news</Eyebrow>
+          <Verdict>
+            {count(newsTrades.length)} were opened within {NEWS_WINDOW_MINUTES} minutes of a
+            high-impact release, and together they came to{" "}
+            <b className={newsStats.net >= 0 ? "pos" : "neg"}>{money0(newsStats.net)}</b>.
+          </Verdict>
+          <BarChart
+            rows={[
+              {
+                label: "Into the news", value: newsStats.net, flag: true,
+                meta: `${count(newsStats.n)} · won ${pct(newsStats.winRate, 0)} · avg ${money(newsStats.expectancy)}`,
+                href: drill(period, { news: "in" }),
+              },
+              {
+                label: "Everything else", value: calmStats.net,
+                meta: `${count(calmStats.n)} · won ${pct(calmStats.winRate, 0)} · avg ${money(calmStats.expectancy)}`,
+                href: drill(period, { news: "out" }),
+              },
+            ]}
+            format={(v) => money0(v)}
+          />
+          <Note>
+            Without them this period would be {money0(cfNews.after)} rather than{" "}
+            {money0(cfNews.before)}.
+          </Note>
+          <Info title="How a news trade is identified">
+            From the release calendar, not from anything you ticked. A trade counts if it was
+            OPENED within {NEWS_WINDOW_MINUTES} minutes either side of a high-impact event — a
+            window chosen because it is roughly how long a gold spread takes to come back to
+            normal after a US print, and because it is something you can act on. &ldquo;Nothing
+            new in the half hour around a red-folder event&rdquo; is a rule; &ldquo;be careful
+            near news&rdquo; is a feeling.
+            <br /><br />
+            It only knows about releases that have been imported, under{" "}
+            <b>Import → News</b>. Payrolls can be worked out for years of history with nothing
+            to import, because its timing is a rule; everything else needs a calendar file.
+          </Info>
+          <Caveat>
+            A release is a reason a period was volatile, not proof it caused the result. Some of
+            these were deliberate news trades and some were ordinary setups that happened to sit
+            near one, and this cannot tell them apart — which is what the setup tag is for.
+          </Caveat>
         </Card>
       )}
 

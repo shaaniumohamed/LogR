@@ -380,3 +380,29 @@ export const tradingRules = pgTable("trading_rule", {
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [index("rule_account_idx").on(t.accountId, t.active)]);
+
+/**
+ * Economic releases, for answering whether a trade was taken into one.
+ *
+ * Shared across accounts for the same reason price bars are: a US payrolls
+ * print happens once, for everybody, and there is nothing private in the fact
+ * that it did. One trader importing a year of calendar covers the rest.
+ *
+ * The key is the instant plus the currency plus the title, so importing an
+ * overlapping range twice is a no-op rather than a pile of duplicates — the
+ * same property the trade import has, and for the same reason: nobody should
+ * have to remember where they left off.
+ */
+export const economicEvents = pgTable("economic_event", {
+  at: timestamp("at", { withTimezone: true }).notNull(),
+  /** USD, EUR, GBP — whose economy the release is about. */
+  currency: text("currency").notNull(),
+  title: text("title").notNull(),
+  /** high | medium | low. Only high ones are counted by default. */
+  impact: text("impact").notNull().default("high"),
+  /** "derived" for the ones computed from a rule, "csv" for an import. */
+  source: text("source").notNull().default("csv"),
+}, (t) => [
+  primaryKey({ columns: [t.at, t.currency, t.title] }),
+  index("economic_event_at_idx").on(t.at),
+]);

@@ -59,6 +59,8 @@ export const schemaIsCurrent = cache(async (): Promise<boolean> => {
       db.execute(sql`select 1 from "price_bar_htf" limit 0`),
       db.execute(sql`select 1 from "trade_screenshot" limit 0`),
       db.execute(sql`select 1 from "invite" limit 0`),
+      db.execute(sql`select 1 from "trading_rule" limit 0`),
+      db.execute(sql`select 1 from "economic_event" limit 0`),
     ]);
     current = true;
   } catch {

@@ -7,19 +7,22 @@ import { CandleImport } from "./candle-import";
 import { CoverageList } from "./coverage-list";
 import { FetchMissing } from "./fetch-missing";
 import { FetchHigherTimeframes } from "./fetch-higher";
+import { NewsImport } from "./news-import";
+import { eventCoverage } from "@/lib/news";
 
 export const dynamic = "force-dynamic";
 
 const TABS = [
   { key: "trades", label: "Trades" },
   { key: "candles", label: "Price history" },
+  { key: "news", label: "News" },
 ] as const;
 
 export default async function ImportPage({ searchParams }: {
   searchParams: Promise<{ tab?: string }>;
 }) {
   const { tab } = await searchParams;
-  const active = tab === "candles" ? "candles" : "trades";
+  const active = TABS.some((t) => t.key === tab) ? tab! : "trades";
 
   return (
     <div className="space-y-5">
@@ -35,7 +38,7 @@ export default async function ImportPage({ searchParams }: {
         ))}
       </div>
 
-      {active === "trades" ? <TradesTab /> : <CandlesTab />}
+      {active === "trades" ? <TradesTab /> : active === "candles" ? <CandlesTab /> : <NewsTab />}
     </div>
   );
 }
@@ -148,6 +151,28 @@ async function CandlesTab() {
           </p>
         </div>
       </details>
+    </div>
+  );
+}
+
+async function NewsTab() {
+  const coverage = await eventCoverage();
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight">Economic releases</h1>
+        <p className="mt-1 text-sm" style={{ color: "var(--ink2)" }}>
+          So the app can tell you what your trades into the news actually cost, instead of
+          asking you to remember which ones they were.
+        </p>
+      </div>
+      <NewsImport
+        coverage={{
+          events: coverage.events, high: coverage.high,
+          from: coverage.from ? coverage.from.toISOString().slice(0, 10) : null,
+          to: coverage.to ? coverage.to.toISOString().slice(0, 10) : null,
+        }}
+      />
     </div>
   );
 }
