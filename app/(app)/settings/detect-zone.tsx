@@ -13,7 +13,7 @@ export function DetectZone({ current }: { current: string }) {
   return (
     <button
       type="button"
-      className="text-[12.5px] font-semibold"
+      className="tap text-[12.5px] font-semibold"
       style={{ color: "var(--c1)" }}
       onClick={(e) => {
         const form = e.currentTarget.closest("form");

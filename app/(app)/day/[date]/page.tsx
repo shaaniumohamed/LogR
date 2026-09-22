@@ -55,7 +55,7 @@ export default async function DayPage({ params }: { params: Promise<{ date: stri
         <div className="truncate text-[15px] font-semibold">
           {dayLabel(date, { weekday: "long", day: "numeric", month: "long" })}
         </div>
-        <Link href={`/calendar?month=${month}`} className="text-[11px]" style={{ color: "var(--c1)" }}>
+        <Link href={`/calendar?month=${month}`} className="tap text-[11px]" style={{ color: "var(--c1)" }}>
           {monthLabel(month)} ›
         </Link>
       </div>
@@ -251,11 +251,11 @@ export default async function DayPage({ params }: { params: Promise<{ date: stri
 
       <div className="flex items-center justify-between gap-3 pb-1 text-[13px] font-semibold">
         {prev
-          ? <Link href={`/day/${prev}`} style={{ color: "var(--c1)" }}>‹ {dayLabel(prev, { weekday: "short", day: "numeric", month: "short" })}</Link>
+          ? <Link href={`/day/${prev}`} className="tap" style={{ color: "var(--c1)" }}>‹ {dayLabel(prev, { weekday: "short", day: "numeric", month: "short" })}</Link>
           : <span />}
-        <Link href={`/trades?date=${date}`} style={{ color: "var(--ink2)" }}>Filter all trades →</Link>
+        <Link href={`/trades?date=${date}`} className="tap" style={{ color: "var(--ink2)" }}>Filter all trades →</Link>
         {next
-          ? <Link href={`/day/${next}`} style={{ color: "var(--c1)" }}>{dayLabel(next, { weekday: "short", day: "numeric", month: "short" })} ›</Link>
+          ? <Link href={`/day/${next}`} className="tap" style={{ color: "var(--c1)" }}>{dayLabel(next, { weekday: "short", day: "numeric", month: "short" })} ›</Link>
           : <span />}
       </div>
     </div>

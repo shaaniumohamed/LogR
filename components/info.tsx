@@ -10,7 +10,7 @@ export function Info({ title = "What is this?", children }: { title?: string; ch
   return (
     <details className="group mt-3">
       <summary
-        className="inline-flex cursor-pointer list-none items-center gap-1.5 text-[11.5px] font-semibold"
+        className="tap cursor-pointer list-none gap-1.5 text-[11.5px] font-semibold"
         style={{ color: "var(--ink3)" }}
       >
         <span

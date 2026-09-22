@@ -91,7 +91,7 @@ export function ChartPanel({
                 : pending.first === null ? "tap one edge of the zone" : "now tap the other edge"}
             </span>
             <button type="button" onClick={() => setPending(null)}
-              className="ml-auto text-[12px]" style={{ color: "var(--ink3)" }}>Cancel</button>
+              className="tap ml-auto text-[12px]" style={{ color: "var(--ink3)" }}>Cancel</button>
           </div>
         ) : (
           <div className="space-y-2">
@@ -152,7 +152,7 @@ export function ChartPanel({
                 {d.kind === "zone" ? `${d.low.toFixed(2)} – ${d.high.toFixed(2)}` : d.low.toFixed(2)}
               </span>
               <button type="button" onClick={() => remove(d.id)}
-                className="ml-auto text-[12px]" style={{ color: "var(--ink3)" }}>Remove</button>
+                className="tap ml-auto text-[12px]" style={{ color: "var(--ink3)" }}>Remove</button>
             </li>
           ))}
         </ul>

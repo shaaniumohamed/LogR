@@ -102,7 +102,7 @@ export function FetchMissing({ days, symbol, hasKey }: {
           <div className="flex items-center justify-between text-[13px]">
             <span>Day {done} of {total}</span>
             <button type="button" onClick={() => { stop.current = true; }}
-                    style={{ color: "var(--ink3)" }}>Stop</button>
+                    className="tap" style={{ color: "var(--ink3)" }}>Stop</button>
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full" style={{ background: "var(--line)" }}>
             <div className="h-full rounded-full"

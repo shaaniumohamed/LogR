@@ -83,24 +83,46 @@ function TiltRow({ label, win, loss, big, format, worseWhen }: {
   const max = Math.max(...rows.map((r) => Math.abs(r.v)), 0.0001);
   const worse = worseWhen === "higher" ? loss > win * 1.1 : loss < win * 0.9;
 
+  /*
+   * A measurement that can go negative is drawn from a centre line.
+   *
+   * Otherwise the bars race on absolute size and the longest one wins, which on
+   * "what the next trade made" put the biggest bar against the worst number. A
+   * reader glancing at that learns the opposite of what happened.
+   */
+  const diverging = rows.some((r) => r.v < 0) && rows.some((r) => r.v >= 0)
+    || rows.every((r) => r.v < 0);
+
   return (
     <div>
       <div className="text-[12.5px] font-semibold">{label}</div>
       <div className="mt-1.5 space-y-1">
-        {rows.map((r, i) => (
-          <div key={r.name} className="flex items-center gap-2">
-            <span className="w-[92px] shrink-0 text-[11px]" style={{ color: "var(--ink3)" }}>{r.name}</span>
-            <div className="h-3 flex-1">
-              <div className="h-full rounded-[3px]"
-                   style={{
-                     width: `${(Math.abs(r.v) / max) * 100}%`,
-                     background: i === 0 ? "var(--ink3)" : worse ? "var(--loss)" : "var(--c1)",
-                     opacity: i === 2 ? 0.75 : 1,
-                   }} />
+        {rows.map((r, i) => {
+          const colour = i === 0 ? "var(--ink3)"
+            : diverging ? (r.v >= 0 ? "var(--profit)" : "var(--loss)")
+            : worse ? "var(--loss)" : "var(--c1)";
+          return (
+            <div key={r.name} className="flex items-center gap-2">
+              <span className="w-[92px] shrink-0 text-[11px]" style={{ color: "var(--ink3)" }}>{r.name}</span>
+              <div className="relative h-3 flex-1">
+                {diverging && (
+                  <span className="absolute inset-y-0 left-1/2 w-px"
+                        style={{ background: "var(--ink3)", opacity: 0.45 }} />
+                )}
+                <span className="absolute top-0 h-full rounded-[3px]"
+                      style={{
+                        width: `${(Math.abs(r.v) / max) * (diverging ? 50 : 100)}%`,
+                        background: colour,
+                        opacity: i === 2 ? 0.8 : 1,
+                        ...(diverging
+                          ? r.v >= 0 ? { left: "50%" } : { right: "50%" }
+                          : { left: 0 }),
+                      }} />
+              </div>
+              <span className="num w-[70px] shrink-0 text-right text-[12px] font-semibold">{format(r.v)}</span>
             </div>
-            <span className="num w-[70px] shrink-0 text-right text-[12px] font-semibold">{format(r.v)}</span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -324,7 +346,7 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
             {tagged.length > 0 ? ` You have annotated ${count(tagged.length)} so far — ${ANNOT_MIN} unlocks these.` : " Nothing is annotated yet."}
           </Verdict>
           <Note>
-            <a href="/review" style={{ color: "var(--c1)", fontWeight: 600 }}>Start with your biggest trades →</a>{" "}
+            <a href="/review" className="tap" style={{ color: "var(--c1)", fontWeight: 600 }}>Start with your biggest trades →</a>{" "}
             The queue is sorted by size of result, so twenty annotations there are worth two
             hundred picked at random.
           </Note>
@@ -425,7 +447,7 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
             it does not.
           </Verdict>
           <Note>
-            <Link href={`/playbook?period=${period}`} style={{ color: "var(--c1)", fontWeight: 600 }}>
+            <Link href={`/playbook?period=${period}`} className="tap" style={{ color: "var(--c1)", fontWeight: 600 }}>
               Open the playbook →
             </Link>
           </Note>
@@ -623,6 +645,8 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           <Note>
             Tap any square to read the trades in it. Amounts are printed in every square, so the
             colour only helps you find them.
+            {grid.hours.length > 6 ? " The grid scrolls sideways for the rest of the day." : ""}
+            {" "}Only the hours you actually trade are shown, so the columns may skip.
           </Note>
           <Info title="Why this is worth more than the two charts below it">
             &ldquo;Fridays are bad&rdquo; and &ldquo;the afternoon is bad&rdquo; are different
@@ -715,7 +739,7 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
             <Note>
               Without them the account would be {money0(cfWeekend.after)} rather than{" "}
               {money0(cfWeekend.before)}.{" "}
-              <Link href={drill(period, { result: "weekend" })} style={{ color: "var(--c1)", fontWeight: 600 }}>
+              <Link href={drill(period, { result: "weekend" })} className="tap" style={{ color: "var(--c1)", fontWeight: 600 }}>
                 Read them →
               </Link>
             </Note>

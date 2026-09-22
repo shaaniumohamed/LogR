@@ -39,8 +39,12 @@ const EXPLAIN: Record<string, { title: string; body: string }> = {
     body: "Sign-in could not start because a setting is absent or wrong. If nothing is listed below, the values are present but one of them is not valid — most often a Google client ID and secret that belong to different credentials.",
   },
   AccessDenied: {
-    title: "That address is not on the list",
-    body: "Sign-in worked, but the address Google returned is not in ALLOWED_EMAILS, so the journal turned it away. Add the address exactly as Google gives it, or clear ALLOWED_EMAILS to let any Google account in. Either change needs a redeploy.",
+    title: "That address has not been invited",
+    body: "Sign-in with Google worked — the journal simply does not have this address on its list. Ask whoever runs it to add you: it takes them one line in Settings and works immediately. Give them the address exactly as it appears in your Google account, since that is the one that arrives here.",
+  },
+  AccessRevoked: {
+    title: "Your access has been removed",
+    body: "You were signed in, and the address is no longer on the list. Nothing of yours has been deleted — if it is added back, your journal will be exactly as you left it.",
   },
   Verification: {
     title: "That link has expired",

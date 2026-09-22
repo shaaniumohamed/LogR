@@ -81,3 +81,16 @@ a:active, button:active, summary:active { opacity: 0.66; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/*
+ * A text-only control is often 16 to 20 pixels tall, which is under every
+ * guideline and well under what a thumb can land on. The padding here grows the
+ * hit area and the negative margin cancels it again, so the touch target reaches
+ * the recommended size without a single pixel of the layout moving.
+ */
+.tap {
+  display: inline-flex;
+  align-items: center;
+  padding-block: 6px;
+  margin-block: -6px;
+}

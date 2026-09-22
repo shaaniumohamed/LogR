@@ -5,6 +5,8 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { requireContext } from "@/lib/session";
+import { OWNER_EMAILS, gateIsOpen, listInvites } from "@/lib/access";
+import { People } from "./people";
 import { checkHealth, regionName, verdictFor } from "@/lib/health";
 import { COMMON_ZONES, isValidZone, offsetLabel } from "@/lib/timezones";
 import { Card, Eyebrow, Note, Verdict } from "@/components/ui";
@@ -13,7 +15,7 @@ import { DetectZone } from "./detect-zone";
 export const dynamic = "force-dynamic";
 
 export default async function Settings() {
-  const [ctx, health] = await Promise.all([requireContext(), checkHealth()]);
+  const [ctx, health, invites] = await Promise.all([requireContext(), checkHealth(), listInvites()]);
   const current = ctx.timeZone;
   const speed = verdictFor(health.dbMs);
 
@@ -61,6 +63,35 @@ export default async function Settings() {
           ))}
         </ul>
       </Card>
+
+      {ctx.isOwner && (
+        <Card>
+          <Eyebrow>Who can use this</Eyebrow>
+          <Verdict>
+            Add a friend&rsquo;s Google address and they can sign in immediately — no redeploy,
+            no setting to edit.
+          </Verdict>
+          <People
+            owners={OWNER_EMAILS}
+            gateOpen={gateIsOpen()}
+            invites={invites.map((i) => ({ ...i, createdAt: i.createdAt.toISOString() }))}
+          />
+          <div className="mt-4 rounded-lg p-3 text-[12.5px] leading-relaxed"
+               style={{ background: "var(--s3)", color: "var(--ink2)" }}>
+            <b>Everyone gets their own journal.</b> Trades, notes, mark-up and settings are per
+            person — your friends cannot see yours and you cannot see theirs. The only thing
+            shared is the price history, because a gold candle at 14:32 is the same candle for
+            everybody and one person fetching a month covers it for the rest.
+            <br /><br />
+            <b>Removing someone deletes nothing.</b> It stops them signing in; their own journal
+            stays exactly as it was, and inviting them again brings it back.
+            <br /><br />
+            <b>Owners</b> are the addresses in <code className="num">OWNER_EMAILS</code> on the
+            host. They can always sign in and only they see this panel, which is why that one
+            setting still lives outside the app.
+          </div>
+        </Card>
+      )}
 
       <Card>
         <Eyebrow>Put it on your home screen</Eyebrow>

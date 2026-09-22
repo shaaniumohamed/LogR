@@ -327,7 +327,7 @@ export function CandleChart({
 
   const Button = ({ id, label }: { id: string; label: string }) => (
     <button type="button" onClick={() => setSel(id)}
-      className="shrink-0 rounded-md px-2.5 py-1 text-[11px] font-semibold"
+      className="rounded-md px-2.5 py-1.5 text-[11px] font-semibold"
       style={sel === id
         ? { background: "var(--ink)", color: "var(--plane)" }
         : { color: "var(--ink3)", border: "1px solid var(--line)" }}>
@@ -337,15 +337,23 @@ export function CandleChart({
 
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="-mx-1 flex min-w-0 gap-1 overflow-x-auto px-1">
+      {/*
+        Wrapped onto a second line rather than scrolled sideways.
+        Ten buttons do not fit across a phone, and in a scrolling strip the four
+        that fall off the right are the higher timeframes — which is to say, the
+        ones nothing else on the page can show and which nobody would think to
+        go looking for. A row that is one line taller is a cheap price for the
+        daily and the weekly being visible at all.
+      */}
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="flex flex-wrap gap-1">
           {minuteOffered.map((t) => <Button key={t.key} id={`m${t.key}`} label={t.label} />)}
           {higherOffered.length > 0 && (
-            <span className="shrink-0 self-center px-0.5" style={{ color: "var(--line)" }}>|</span>
+            <span className="self-center px-0.5" style={{ color: "var(--line)" }}>|</span>
           )}
           {higherOffered.map((t) => <Button key={t.key} id={t.key} label={t.label} />)}
         </div>
-        <span className="num shrink-0 text-[11px]" style={{ color: "var(--ink3)" }}>{symbol}</span>
+        <span className="num shrink-0 pt-1 text-[11px]" style={{ color: "var(--ink3)" }}>{symbol}</span>
       </div>
 
       <div className="relative" style={{ cursor: drawMode ? "crosshair" : undefined }}>

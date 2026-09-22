@@ -2,13 +2,20 @@ import { cache } from "react";
 import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { tradingAccounts, users } from "@/lib/db/schema";
+import { invites, tradingAccounts, users } from "@/lib/db/schema";
+import { gateIsOpen, isOwner, normaliseEmail } from "@/lib/access";
+import { readOrDegrade } from "@/lib/db/schema-check";
 
 export interface RequestContext {
   userId: string;
+  email: string | null;
   /** Every time in the UI renders in this zone. */
   timeZone: string;
   account: typeof tradingAccounts.$inferSelect;
+  /** Named in the environment: may hand out and take back access. */
+  isOwner: boolean;
+  /** False once an invite has been revoked, while the session is still valid. */
+  hasAccess: boolean;
 }
 
 /**
@@ -35,13 +42,35 @@ export const requestContext = cache(async (): Promise<RequestContext | null> => 
   if (!userId) return null;
 
   const [row] = await db
-    .select({ timeZone: users.timeZone, account: tradingAccounts })
+    .select({ timeZone: users.timeZone, email: users.email, account: tradingAccounts })
     .from(users)
     .leftJoin(tradingAccounts, eq(tradingAccounts.userId, users.id))
     .where(eq(users.id, userId))
     .limit(1);
 
   if (!row) return null;
+
+  /*
+   * Revocation has to bite before the session expires.
+   *
+   * Sessions here are JWTs, which is what makes every page cheap — no database
+   * round trip to know who is asking. The cost is that removing someone from
+   * the list does nothing until their token runs out, which is weeks. So the
+   * invite is re-checked here, in a query issued alongside the one above rather
+   * than after it, which means it costs no extra waiting.
+   *
+   * Owners skip it: they are named in the environment and cannot be revoked
+   * from inside the app, and checking would only add a way to lock them out.
+   */
+  const owner = isOwner(row.email);
+  const hasAccess = owner || gateIsOpen()
+    ? true
+    : await readOrDegrade(async () => {
+        if (!row.email) return false;
+        const [invite] = await db.select({ email: invites.email }).from(invites)
+          .where(eq(invites.email, normaliseEmail(row.email!))).limit(1);
+        return !!invite;
+      }, true);
 
   // First visit. One extra round trip, once in this user's lifetime.
   const account = row.account ?? (await db
@@ -51,9 +80,12 @@ export const requestContext = cache(async (): Promise<RequestContext | null> => 
 
   return {
     userId,
+    email: row.email,
     // UTC is the stored default and means "not set yet" rather than a choice.
     timeZone: row.timeZone && row.timeZone !== "UTC" ? row.timeZone : "UTC",
     account,
+    isOwner: owner,
+    hasAccess,
   };
 });
 

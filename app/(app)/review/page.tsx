@@ -214,7 +214,7 @@ export default async function Review({ searchParams }: {
             <button type="submit" className="rounded-lg px-3.5 py-2.5 text-[13px] font-semibold"
                     style={{ background: "var(--ink)", color: "var(--plane)" }}>Search</button>
             {q && (
-              <Link href={href({ q: "" })} className="self-center text-[12.5px]" style={{ color: "var(--c1)" }}>
+              <Link href={href({ q: "" })} className="tap self-center text-[12.5px]" style={{ color: "var(--c1)" }}>
                 Clear
               </Link>
             )}
@@ -284,7 +284,7 @@ export default async function Review({ searchParams }: {
             })}
           </ul>
           <div className="px-4 py-3 text-center text-[12px]" style={{ borderTop: "1px solid var(--line)" }}>
-            <Link href="/analytics" style={{ color: "var(--c1)" }}>
+            <Link href="/analytics" className="tap" style={{ color: "var(--c1)" }}>
               See what these add up to in Patterns ›
             </Link>
           </div>

@@ -1,8 +1,16 @@
 import type { ReactNode } from "react";
 
 /* Plain-language formatters. No jargon reaches the screen: "15 trades", never "n=15". */
+/**
+ * The word joiner after the minus sign is not decoration.
+ *
+ * A browser is allowed to break a line after a minus, and on a phone it does:
+ * the headline figure on the Overview rendered as a lone "−" on one line with
+ * "$5,851.37" underneath it, which reads as a stray dash above a profit. U+2060
+ * removes that break opportunity and occupies no width, so nothing else moves.
+ */
 export const money = (n: number, dp = 2) =>
-  `${n < 0 ? "−" : ""}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp })}`;
+  `${n < 0 ? "−\u2060" : ""}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: dp, maximumFractionDigits: dp })}`;
 export const money0 = (n: number) => money(n, 0);
 export const pct = (n: number, dp = 1) => `${(n * 100).toFixed(dp)}%`;
 export const count = (n: number, one = "trade", many = "trades") =>

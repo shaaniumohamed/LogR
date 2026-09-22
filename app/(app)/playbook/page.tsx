@@ -89,7 +89,7 @@ export default async function Playbook({ searchParams }: {
             {tagged > 0 ? ` You have tagged ${count(tagged)} so far.` : " Nothing is tagged yet."}
           </Verdict>
           <Note>
-            <Link href="/review" style={{ color: "var(--c1)", fontWeight: 600 }}>
+            <Link href="/review" className="tap" style={{ color: "var(--c1)", fontWeight: 600 }}>
               Tag your biggest trades first →
             </Link>{" "}
             The review queue is ordered by size of result, so twenty tags there are worth two
@@ -207,9 +207,9 @@ export default async function Playbook({ searchParams }: {
               )}
 
               <div className="mt-4 flex flex-wrap items-center gap-4 text-[13px] font-semibold">
-                <Link href={link} style={{ color: "var(--c1)" }}>Read all {stats.n} →</Link>
-                <Link href={`${link}&sort=worst`} style={{ color: "var(--ink2)" }}>Worst first</Link>
-                <Link href={`${link}&sort=best`} style={{ color: "var(--ink2)" }}>Best first</Link>
+                <Link href={link} className="tap" style={{ color: "var(--c1)" }}>Read all {stats.n} →</Link>
+                <Link href={`${link}&sort=worst`} className="tap" style={{ color: "var(--ink2)" }}>Worst first</Link>
+                <Link href={`${link}&sort=best`} className="tap" style={{ color: "var(--ink2)" }}>Best first</Link>
               </div>
             </Card>
           );

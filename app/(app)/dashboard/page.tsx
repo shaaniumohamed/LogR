@@ -223,7 +223,7 @@ export default async function Dashboard({ searchParams }: {
       <Card>
         <div className="flex items-baseline justify-between gap-3">
           <Eyebrow>Calendar</Eyebrow>
-          <Link href={`/calendar?month=${month}`} className="text-[12px] font-semibold" style={{ color: "var(--c1)" }}>
+          <Link href={`/calendar?month=${month}`} className="tap text-[12px] font-semibold" style={{ color: "var(--c1)" }}>
             Open calendar →
           </Link>
         </div>
@@ -296,7 +296,7 @@ export default async function Dashboard({ searchParams }: {
       )}
 
       <div className="pt-1 text-center">
-        <Link href="/analytics" className="text-[13px] font-semibold" style={{ color: "var(--c1)" }}>
+        <Link href="/analytics" className="tap text-[13px] font-semibold" style={{ color: "var(--c1)" }}>
           See all patterns →
         </Link>
       </div>

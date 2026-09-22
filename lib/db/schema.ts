@@ -257,3 +257,30 @@ export const priceBarsHtf = pgTable("price_bar_htf", {
   // one symbol at one timeframe reads a single contiguous run of the index.
   primaryKey({ columns: [t.symbol, t.tf, t.t] }),
 ]);
+
+/**
+ * Who is allowed in, beyond the owners named in the environment.
+ *
+ * Access used to live entirely in an ALLOWED_EMAILS environment variable, which
+ * meant adding a friend was: open the host's dashboard, find the variable, edit
+ * a comma-separated string without breaking it, redeploy, wait. That is a
+ * deployment to let somebody look at a chart, and it is the kind of friction
+ * that ends with the variable cleared and the journal open to the internet.
+ *
+ * The email is the key, lowercased by the code that writes it, because that is
+ * exactly the uniqueness wanted: one row per person, and inviting the same
+ * address twice is a no-op rather than a duplicate.
+ *
+ * Revoking removes the row and nothing else. Their trades, notes and mark-up
+ * stay exactly where they are — a fallen-out-with friend is not a reason to
+ * destroy a year of someone's journal, and re-inviting them restores access
+ * without restoring anything from a backup.
+ */
+export const invites = pgTable("invite", {
+  email: text("email").primaryKey(),
+  /** Null once the inviter's own row is gone; the invite itself survives. */
+  invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
+  /** Free text so a list of addresses is still readable in six months. */
+  note: text("note"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});

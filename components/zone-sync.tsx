@@ -43,7 +43,7 @@ export function ZoneSync({ saved }: { saved: string }) {
       >
         {busy ? "Switching…" : `Switch to ${city}`}
       </button>
-      <button onClick={() => setDismissed(true)} style={{ color: "var(--ink3)" }}>Keep current</button>
+      <button onClick={() => setDismissed(true)} className="tap" style={{ color: "var(--ink3)" }}>Keep current</button>
     </div>
   );
 }

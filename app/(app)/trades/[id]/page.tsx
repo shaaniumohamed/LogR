@@ -111,10 +111,10 @@ export default async function TradeDetail({ params, searchParams }: {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 text-[13px]">
-        <Link href={`/day/${dayKey}`} style={{ color: "var(--ink2)" }}>
+        <Link href={`/day/${dayKey}`} className="tap" style={{ color: "var(--ink2)" }}>
           ‹ {dayLabel(dayKey, { weekday: "short", day: "numeric", month: "short" })}
         </Link>
-        <Link href="/trades" style={{ color: "var(--ink3)" }}>All trades</Link>
+        <Link href="/trades" className="tap" style={{ color: "var(--ink3)" }}>All trades</Link>
       </div>
 
       <Card>

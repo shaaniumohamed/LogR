@@ -102,7 +102,7 @@ export default async function CalendarPage({ searchParams }: {
             </div>
             {best && worst && best.date !== worst.date && (
               <p className="mt-3 text-[13px]" style={{ color: "var(--ink2)" }}>
-                <Link href={`/day/${worst.date}`} style={{ color: "var(--c1)", fontWeight: 600 }}>
+                <Link href={`/day/${worst.date}`} className="tap" style={{ color: "var(--c1)", fontWeight: 600 }}>
                   Open {worst.date.slice(8)} {monthLabel(month).split(" ")[0]} →
                 </Link>{" "}
                 your worst day of the month, at {money(worst.net)} across {count(worst.trades)}.

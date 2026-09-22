@@ -270,11 +270,11 @@ export default async function Trades({ searchParams }: {
       {onDate ? (
         <div className="flex items-center justify-between gap-3 rounded-xl px-4 py-3"
              style={{ background: "var(--s3)", border: "1px solid var(--line)" }}>
-          <Link href={`/day/${onDate}`} className="text-[13px] font-semibold">
+          <Link href={`/day/${onDate}`} className="tap text-[13px] font-semibold">
             {new Date(`${onDate}T12:00:00Z`).toLocaleDateString("en-GB",
               { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" })} ›
           </Link>
-          <Link href="/trades" className="text-[12.5px]" style={{ color: "var(--c1)" }}>Clear</Link>
+          <Link href="/trades" className="tap text-[12.5px]" style={{ color: "var(--c1)" }}>Clear</Link>
         </div>
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -290,7 +290,7 @@ export default async function Trades({ searchParams }: {
             Trades where you marked{" "}
             <b className="num">{band[0].toFixed(2)} – {band[1].toFixed(2)}</b>
           </span>
-          <Link href={href({ level: null })} className="text-[12.5px]" style={{ color: "var(--c1)" }}>Clear</Link>
+          <Link href={href({ level: null })} className="tap text-[12.5px]" style={{ color: "var(--c1)" }}>Clear</Link>
         </div>
       )}
 
@@ -368,11 +368,11 @@ export default async function Trades({ searchParams }: {
       {pages > 1 && (
         <div className="flex items-center justify-between text-[13px]">
           {safePage > 1
-            ? <Link href={href({ page: String(safePage - 1) })} style={{ color: "var(--c1)" }}>← Newer</Link>
+            ? <Link href={href({ page: String(safePage - 1) })} className="tap" style={{ color: "var(--c1)" }}>← Newer</Link>
             : <span />}
           <span style={{ color: "var(--ink3)" }}>Page {safePage} of {pages}</span>
           {safePage < pages
-            ? <Link href={href({ page: String(safePage + 1) })} style={{ color: "var(--c1)" }}>Older →</Link>
+            ? <Link href={href({ page: String(safePage + 1) })} className="tap" style={{ color: "var(--c1)" }}>Older →</Link>
             : <span />}
         </div>
       )}

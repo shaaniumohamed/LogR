@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { tradeAnnotations, users } from "@/lib/db/schema";
+import { invites, tradeAnnotations, users } from "@/lib/db/schema";
+import { requestContext } from "@/lib/session";
+import { isOwner, looksLikeEmail, normaliseEmail } from "@/lib/access";
 import type { Drawing } from "@/lib/core/types";
 import { getOrCreateAccount } from "@/lib/account";
 import { readOrDegrade } from "@/lib/db/schema-check";
@@ -142,4 +144,47 @@ export async function setTimeZone(tz: string) {
   await db.update(users).set({ timeZone: tz }).where(eq(users.id, userId));
   revalidatePath("/", "layout");
   return { ok: true };
+}
+
+/**
+ * Invite someone, or take the invitation back.
+ *
+ * Both check ownership on the server rather than trusting that the button was
+ * only rendered for owners. A server action is a public endpoint with a
+ * guessable shape; hiding the control is presentation, not security.
+ */
+export async function inviteFriend(_prev: { error?: string; ok?: string } | null, form: FormData) {
+  const ctx = await requestContext();
+  if (!ctx?.isOwner) return { error: "Only an owner can invite people." };
+
+  const email = normaliseEmail(String(form.get("email") ?? ""));
+  const note = String(form.get("note") ?? "").trim().slice(0, 60) || null;
+
+  if (!looksLikeEmail(email)) {
+    return { error: "That does not look like an email address." };
+  }
+  if (isOwner(email)) {
+    return { error: "That address is already an owner, so it can always sign in." };
+  }
+
+  await db.insert(invites)
+    .values({ email, note, invitedBy: ctx.userId })
+    // Re-inviting someone updates the note rather than failing, which is what
+    // anyone typing the same address twice actually meant.
+    .onConflictDoUpdate({ target: invites.email, set: { note } });
+
+  revalidatePath("/settings");
+  return { ok: `${email} can sign in now.` };
+}
+
+export async function revokeInvite(_prev: { error?: string; ok?: string } | null, form: FormData) {
+  const ctx = await requestContext();
+  if (!ctx?.isOwner) return { error: "Only an owner can remove people." };
+
+  const email = normaliseEmail(String(form.get("email") ?? ""));
+  if (!email) return { error: "No address given." };
+
+  await db.delete(invites).where(eq(invites.email, email));
+  revalidatePath("/settings");
+  return { ok: `${email} can no longer sign in. Nothing of theirs was deleted.` };
 }

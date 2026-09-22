@@ -3,6 +3,7 @@ import Google from "next-auth/providers/google";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { db } from "@/lib/db";
 import { accounts, sessions, users, verificationTokens } from "@/lib/db/schema";
+import { canSignIn } from "@/lib/access";
 
 /**
  * Pin the URL Auth.js builds its OAuth callback from.
@@ -29,9 +30,6 @@ if (process.env.AUTH_URL) {
   process.env.AUTH_URL = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
 }
 
-const allowList = (process.env.ALLOWED_EMAILS ?? "")
-  .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
-
 /**
  * Auth.js v5 with Google OAuth. Free, no monthly-active-user ceiling, and no
  * password for us to store or leak. The Drizzle adapter persists users and
@@ -51,10 +49,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   // guess which part. Ours names the missing setting.
   pages: { signIn: "/signin", error: "/signin" },
   callbacks: {
-    /** Optional private-beta gate: set ALLOWED_EMAILS to lock the app down. */
+    /**
+     * The gate: owners from the environment, plus anyone they have invited.
+     *
+     * One query, and only at sign-in rather than on every request, so the cost
+     * is a few milliseconds once a month per person.
+     */
     signIn({ user }) {
-      if (allowList.length === 0) return true;
-      return !!user.email && allowList.includes(user.email.toLowerCase());
+      return canSignIn(user.email);
     },
     jwt({ token, user }) {
       if (user?.id) token.uid = user.id;

@@ -31,6 +31,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // for either. They run together because neither needs the other's answer.
   const [ctx, schemaOk] = await Promise.all([requestContext(), schemaIsCurrent()]);
   if (!ctx) redirect("/signin");
+  // Access removed while they were still signed in. Nothing of theirs is
+  // deleted; they simply stop being let through the door.
+  if (!ctx.hasAccess) redirect("/signin?error=AccessRevoked");
   const savedZone = ctx.timeZone;
 
   return (
@@ -39,7 +42,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         <Link href="/dashboard" className="text-base font-semibold tracking-tight">LogR</Link>
         <TopNav tabs={[...NAV, ...DESKTOP_EXTRA]} />
         <form className="ml-auto" action={async () => { "use server"; await signOut({ redirectTo: "/signin" }); }}>
-          <button type="submit" className="text-xs" style={{ color: "var(--ink3)" }}>Sign out</button>
+          <button type="submit" className="tap text-xs" style={{ color: "var(--ink3)" }}>Sign out</button>
         </form>
       </header>
 
