@@ -108,6 +108,11 @@ for (const d of DEVICES) {
       for (const el of document.querySelectorAll("a, button, summary, input, select")) {
         const r = el.getBoundingClientRect();
         if (r.width === 0 || r.height === 0) continue;
+        // A radio or checkbox hidden behind its own label is not a tap target;
+        // the label is, and it gets measured on its own account.
+        if (r.width <= 2 || r.height <= 2) continue;
+        const cs = getComputedStyle(el);
+        if (cs.opacity === "0" || cs.visibility === "hidden") continue;
         if (r.height < 24 || r.width < 24) {
           out.push({
             tag: el.tagName.toLowerCase(),

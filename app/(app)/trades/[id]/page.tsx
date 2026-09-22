@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { loadAnnotation } from "@/lib/actions";
+import { loadAnnotation, loadScreenshots } from "@/lib/actions";
+import { storageConfigured } from "@/lib/storage";
+import { Screenshots } from "./screenshots";
 import { loadTradeWithLegs, loadTrades } from "@/lib/queries";
 import { pointValuePerLot } from "@/lib/core/metrics";
 import { TradeChart } from "@/components/trade-chart";
@@ -34,10 +36,11 @@ export default async function TradeDetail({ params, searchParams }: {
    * a tidier-looking function.
    */
   const { account } = await requireContext();
-  const [{ all, timeZone }, annotation, withLegs] = await Promise.all([
+  const [{ all, timeZone }, annotation, withLegs, shots] = await Promise.all([
     loadTrades("all"),
     loadAnnotation(account.id, id),
     loadTradeWithLegs(account.id, id),
+    loadScreenshots(account.id, id),
   ]);
 
   const t = all.find((x) => x.id === id);
@@ -294,6 +297,25 @@ export default async function TradeDetail({ params, searchParams }: {
           )}
         </Card>
       )}
+
+      <Card>
+        <Eyebrow>What you were looking at</Eyebrow>
+        <Note>
+          The chart above is reconstructed — where price went, where your fills landed. It
+          cannot show the thing that actually decided the trade: the screen you were looking
+          at, with whatever you had drawn on it. That is the only piece of evidence no export
+          contains, and it is the one that makes a review honest six weeks later.
+        </Note>
+        <Screenshots identityHash={t.id} shots={shots} enabled={storageConfigured()} />
+        <Info title="Where these are kept">
+          In your own storage bucket, private. The page asks for a link that works for an hour
+          and then stops, so nothing here survives being pasted somewhere by accident.
+          <br /><br />
+          Each image is shrunk and re-encoded on your phone before it is sent — a screenshot
+          that leaves as five megabytes of PNG arrives as about two hundred kilobytes, which is
+          the difference between doing this every evening and doing it once.
+        </Info>
+      </Card>
 
       <Card>
         <Eyebrow>Annotate this trade</Eyebrow>

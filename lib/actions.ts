@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { invites, tradeAnnotations, users } from "@/lib/db/schema";
+import { invites, tradeAnnotations, tradeScreenshots, users } from "@/lib/db/schema";
+import { viewUrl } from "@/lib/storage";
 import { requestContext } from "@/lib/session";
 import { isOwner, looksLikeEmail, normaliseEmail } from "@/lib/access";
 import type { Drawing } from "@/lib/core/types";
@@ -187,4 +188,25 @@ export async function revokeInvite(_prev: { error?: string; ok?: string } | null
   await db.delete(invites).where(eq(invites.email, email));
   revalidatePath("/settings");
   return { ok: `${email} can no longer sign in. Nothing of theirs was deleted.` };
+}
+
+/** Screenshots for one trade, with links that are signed fresh and expire. */
+export async function loadScreenshots(accountId: string, identityHash: string) {
+  return readOrDegrade(async () => {
+    const rows = await db.select().from(tradeScreenshots)
+      .where(and(
+        eq(tradeScreenshots.accountId, accountId),
+        eq(tradeScreenshots.identityHash, identityHash),
+      ))
+      .orderBy(tradeScreenshots.createdAt);
+    return rows.map((r) => ({
+      id: r.id,
+      // Signed per render rather than stored: a link that lives in the database
+      // is a link that outlives the reason it was created.
+      url: viewUrl(r.storageKey),
+      caption: r.caption,
+      width: r.width,
+      height: r.height,
+    }));
+  }, []);
 }

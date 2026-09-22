@@ -284,3 +284,35 @@ export const invites = pgTable("invite", {
   note: text("note"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+/**
+ * A screenshot of the chart as the trader saw it.
+ *
+ * The one input the broker's export can never contain. Everything else in this
+ * journal is reconstructed after the fact — where price went, where the fills
+ * landed — and none of it shows the thing that actually decided the trade: the
+ * chart that was on the screen, with whatever was drawn on it, at the moment
+ * the button was pressed. That picture is the evidence; the rest is the record.
+ *
+ * Only the KEY is stored. The bytes live in object storage, and the link to
+ * them is signed fresh on every render and expires within the hour, so a row
+ * here is worthless to anyone who gets hold of it.
+ *
+ * Keyed to identityHash like every other user-authored thing, so re-deriving
+ * zone trades after a parser change cannot orphan a screenshot.
+ */
+export const tradeScreenshots = pgTable("trade_screenshot", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  accountId: text("account_id").notNull().references(() => tradingAccounts.id, { onDelete: "cascade" }),
+  identityHash: text("identity_hash").notNull(),
+  /** Path inside the bucket. Never a URL: those are signed per request. */
+  storageKey: text("storage_key").notNull(),
+  contentType: text("content_type").notNull(),
+  bytes: integer("bytes").notNull(),
+  width: integer("width"),
+  height: integer("height"),
+  /** "H4 before entry", "what I saw at 09:15" — a picture with no label ages badly. */
+  caption: text("caption"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [index("screenshot_trade_idx").on(t.accountId, t.identityHash)]);
