@@ -42,7 +42,7 @@ export function CoverageList({ rows }: { rows: CoverageRow[] }) {
           <span className="num" style={{ color: "var(--ink2)" }}>{c.bars.toLocaleString("en-US")} candles</span>
           <span style={{ color: "var(--ink3)" }}>{c.from} → {c.to}</span>
           <button type="button" onClick={() => clear(c.symbol, c.bars)} disabled={busy === c.symbol}
-                  className="ml-auto text-[12px]" style={{ color: "var(--ink3)" }}>
+                  className="tap ml-auto text-[12px]" style={{ color: "var(--ink3)" }}>
             {busy === c.symbol ? "Removing…" : "Remove"}
           </button>
         </li>

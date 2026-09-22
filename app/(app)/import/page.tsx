@@ -117,7 +117,7 @@ async function CandlesTab() {
       )}
 
       <details className="card p-5">
-        <summary className="cursor-pointer text-[13px] font-semibold">
+        <summary className="tap cursor-pointer text-[13px] font-semibold">
           Import a file instead
         </summary>
         <p className="mt-2 text-[13px]" style={{ color: "var(--ink2)" }}>
@@ -130,7 +130,7 @@ async function CandlesTab() {
       </details>
 
       <details className="card p-5">
-        <summary className="cursor-pointer text-[13px] font-semibold">Where to get a free file</summary>
+        <summary className="tap cursor-pointer text-[13px] font-semibold">Where to get a free file</summary>
         <div className="mt-3 space-y-3 text-[13px] leading-relaxed" style={{ color: "var(--ink2)" }}>
           <p>
             <b>HistData.com</b> — free one-minute history going back years, one zip a month.
