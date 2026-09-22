@@ -15,6 +15,15 @@ export const users = pgTable("user", {
   /** Everything in the UI renders in this zone. The export is UTC; the trader is not. */
   timeZone: text("time_zone").notNull().default("UTC"),
   baseCurrency: varchar("base_currency", { length: 3 }).notNull().default("USD"),
+  /**
+   * Which trading account the app is currently showing.
+   *
+   * On the user rather than in a cookie, so the choice follows the person to
+   * their laptop instead of being a property of one browser. No foreign key:
+   * it is a preference, and a dangling id resolves to "first account" rather
+   * than to an error.
+   */
+  activeAccountId: text("active_account_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

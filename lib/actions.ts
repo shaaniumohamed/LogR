@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { invites, tradeAnnotations, tradeScreenshots, tradingRules, users, weeklyNotes } from "@/lib/db/schema";
+import { invites, tradeAnnotations, tradeScreenshots, tradingAccounts, tradingRules, users, weeklyNotes } from "@/lib/db/schema";
 import { viewUrl } from "@/lib/storage";
 import { requestContext } from "@/lib/session";
 import { isOwner, looksLikeEmail, normaliseEmail } from "@/lib/access";
@@ -300,5 +300,105 @@ export async function setRuleActive(_prev: unknown, form: FormData) {
   await db.update(tradingRules).set({ active })
     .where(and(eq(tradingRules.id, id), eq(tradingRules.accountId, ctx.account.id)));
   revalidatePath("/playbook");
+  return {};
+}
+
+/* ------------------------------------------------------------- accounts */
+
+const KINDS = ["live", "demo", "cent", "prop"] as const;
+
+/**
+ * A second account is not a second journal.
+ *
+ * Trades, notes, rules and screenshots all hang off an account id, so switching
+ * changes every figure in the app at once — which is the point. A demo run and
+ * a live one averaged together produce a number that describes neither.
+ */
+export async function createAccount(_prev: { error?: string } | null, form: FormData) {
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return { error: "Not signed in" };
+
+  const nickname = String(form.get("nickname") ?? "").trim().slice(0, 40);
+  const broker = String(form.get("broker") ?? "").trim().slice(0, 40) || "Exness";
+  const kindRaw = String(form.get("accountKind") ?? "live");
+  const accountKind = (KINDS as readonly string[]).includes(kindRaw) ? kindRaw : "live";
+  const currency = String(form.get("currency") ?? "USD").trim().toUpperCase().slice(0, 3) || "USD";
+
+  if (nickname.length < 1) return { error: "Give it a name you will recognise." };
+  if (ctx.accounts.length >= 10) return { error: "Ten accounts is already a lot to keep straight." };
+  if (ctx.accounts.some((a) => a.nickname.toLowerCase() === nickname.toLowerCase())) {
+    return { error: "You already have an account with that name." };
+  }
+
+  const [created] = await db.insert(tradingAccounts).values({
+    userId: ctx.userId, nickname, broker, currency, accountKind,
+    // A cent account denominates in cents; the metrics work it out from the
+    // fills either way, but the flag is what the label on screen reads from.
+    isCent: accountKind === "cent",
+  }).returning();
+
+  // Switch to it: nobody adds an account in order to keep looking at another.
+  await db.update(users).set({ activeAccountId: created.id }).where(eq(users.id, ctx.userId));
+  revalidatePath("/", "layout");
+  return {};
+}
+
+export async function switchAccount(_prev: unknown, form: FormData) {
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return { error: "Not signed in" };
+
+  const id = String(form.get("accountId") ?? "");
+  // Checked against the caller's own list, so an id from anywhere else is a
+  // no-op rather than a way into somebody else's journal.
+  if (!ctx.accounts.some((a) => a.id === id)) return { error: "No such account." };
+
+  await db.update(users).set({ activeAccountId: id }).where(eq(users.id, ctx.userId));
+  revalidatePath("/", "layout");
+  return {};
+}
+
+export async function renameAccount(_prev: { error?: string } | null, form: FormData) {
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return { error: "Not signed in" };
+
+  const id = String(form.get("accountId") ?? "");
+  const nickname = String(form.get("nickname") ?? "").trim().slice(0, 40);
+  if (!nickname) return { error: "A name cannot be empty." };
+  if (!ctx.accounts.some((a) => a.id === id)) return { error: "No such account." };
+
+  await db.update(tradingAccounts).set({ nickname })
+    .where(and(eq(tradingAccounts.id, id), eq(tradingAccounts.userId, ctx.userId)));
+  revalidatePath("/", "layout");
+  return {};
+}
+
+/**
+ * Deleting an account destroys everything under it, so the name has to be typed.
+ *
+ * Trades cascade, and so do the notes, rules and screenshot records keyed to
+ * them. That is the correct behaviour — an account you have removed should not
+ * leave its numbers in your totals — and it is also unrecoverable, which is why
+ * this asks for the one piece of confirmation a mis-tap cannot supply.
+ */
+export async function deleteAccount(_prev: { error?: string } | null, form: FormData) {
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return { error: "Not signed in" };
+
+  const id = String(form.get("accountId") ?? "");
+  const typed = String(form.get("confirm") ?? "").trim();
+  const target = ctx.accounts.find((a) => a.id === id);
+
+  if (!target) return { error: "No such account." };
+  if (ctx.accounts.length === 1) return { error: "This is your only account, so there would be nothing left to sign in to." };
+  if (typed.toLowerCase() !== target.nickname.toLowerCase()) {
+    return { error: `Type “${target.nickname}” exactly to confirm.` };
+  }
+
+  await db.delete(tradingAccounts)
+    .where(and(eq(tradingAccounts.id, id), eq(tradingAccounts.userId, ctx.userId)));
+
+  const fallback = ctx.accounts.find((a) => a.id !== id)!;
+  await db.update(users).set({ activeAccountId: fallback.id }).where(eq(users.id, ctx.userId));
+  revalidatePath("/", "layout");
   return {};
 }

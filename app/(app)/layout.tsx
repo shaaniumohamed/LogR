@@ -4,6 +4,7 @@ import { signOut } from "@/auth";
 import { requestContext } from "@/lib/session";
 import { ZoneSync } from "@/components/zone-sync";
 import { TabBar, TopNav } from "@/components/tab-bar";
+import { AccountSwitcher } from "@/components/account-switcher";
 import { schemaIsCurrent } from "@/lib/db/schema-check";
 
 /**
@@ -39,11 +40,19 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-4">
-      <header className="flex items-center gap-5 py-4" style={{ borderBottom: "1px solid var(--line)" }}>
-        <Link href="/dashboard" className="text-base font-semibold tracking-tight">LogR</Link>
+      <header className="flex items-center gap-3 py-4 sm:gap-5" style={{ borderBottom: "1px solid var(--line)" }}>
+        <Link href="/dashboard" className="shrink-0 text-base font-semibold tracking-tight">LogR</Link>
         <TopNav tabs={[...NAV, ...DESKTOP_EXTRA]} />
-        <form className="ml-auto" action={async () => { "use server"; await signOut({ redirectTo: "/signin" }); }}>
-          <button type="submit" className="tap text-xs" style={{ color: "var(--ink3)" }}>Sign out</button>
+        <div className="ml-auto flex min-w-0 items-center gap-3">
+          <AccountSwitcher
+            accounts={ctx.accounts.map((a) => ({ id: a.id, nickname: a.nickname, kind: a.accountKind }))}
+            activeId={ctx.account.id}
+          />
+        </div>
+        <form className="shrink-0" action={async () => { "use server"; await signOut({ redirectTo: "/signin" }); }}>
+          <button type="submit" className="tap whitespace-nowrap text-xs" style={{ color: "var(--ink3)" }}>
+            Sign out
+          </button>
         </form>
       </header>
 

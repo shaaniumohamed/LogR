@@ -9,6 +9,8 @@ import { readOrDegrade } from "@/lib/db/schema-check";
 export interface RequestContext {
   userId: string;
   email: string | null;
+  /** Every account this person has, oldest first. */
+  accounts: (typeof tradingAccounts.$inferSelect)[];
   /** Every time in the UI renders in this zone. */
   timeZone: string;
   account: typeof tradingAccounts.$inferSelect;
@@ -41,14 +43,26 @@ export const requestContext = cache(async (): Promise<RequestContext | null> => 
   const userId = session?.user?.id;
   if (!userId) return null;
 
-  const [row] = await db
-    .select({ timeZone: users.timeZone, email: users.email, account: tradingAccounts })
+  /*
+   * Every account in the same statement as the user, rather than one row.
+   *
+   * A trader with a live account and a demo has two, and the page needs the
+   * whole list anyway to offer the switch. Joining them is the same single
+   * crossing it always was — a handful of rows, not a table scan.
+   */
+  const rows = await db
+    .select({ timeZone: users.timeZone, email: users.email, active: users.activeAccountId, account: tradingAccounts })
     .from(users)
     .leftJoin(tradingAccounts, eq(tradingAccounts.userId, users.id))
-    .where(eq(users.id, userId))
-    .limit(1);
+    .where(eq(users.id, userId));
 
+  const row = rows[0];
   if (!row) return null;
+
+  const accounts = rows
+    .map((r) => r.account)
+    .filter((a): a is NonNullable<typeof a> => a !== null)
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
   /*
    * Revocation has to bite before the session expires.
@@ -73,14 +87,20 @@ export const requestContext = cache(async (): Promise<RequestContext | null> => 
       }, true);
 
   // First visit. One extra round trip, once in this user's lifetime.
-  const account = row.account ?? (await db
+  const created = accounts.length ? null : (await db
     .insert(tradingAccounts)
     .values({ userId, nickname: "Main", broker: "Exness", currency: "USD" })
     .returning())[0];
+  if (created) accounts.push(created);
+
+  // A stale or deleted id falls back to the oldest account rather than failing:
+  // this is a preference, and being wrong about it should never lock anyone out.
+  const account = accounts.find((a) => a.id === row.active) ?? accounts[0];
 
   return {
     userId,
     email: row.email,
+    accounts,
     // UTC is the stored default and means "not set yet" rather than a choice.
     timeZone: row.timeZone && row.timeZone !== "UTC" ? row.timeZone : "UTC",
     account,

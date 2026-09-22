@@ -6,16 +6,24 @@ import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { requireContext } from "@/lib/session";
 import { OWNER_EMAILS, gateIsOpen, listInvites } from "@/lib/access";
+import { countTradesPerAccount } from "@/lib/queries";
+import { Accounts } from "./accounts";
 import { People } from "./people";
 import { checkHealth, regionName, verdictFor } from "@/lib/health";
 import { COMMON_ZONES, isValidZone, offsetLabel } from "@/lib/timezones";
 import { Card, Eyebrow, Note, Verdict } from "@/components/ui";
+import { Info } from "@/components/info";
 import { DetectZone } from "./detect-zone";
 
 export const dynamic = "force-dynamic";
 
 export default async function Settings() {
-  const [ctx, health, invites] = await Promise.all([requireContext(), checkHealth(), listInvites()]);
+  const ctx = await requireContext();
+  const [health, invites, tradeCounts] = await Promise.all([
+    checkHealth(),
+    ctx.isOwner ? listInvites() : Promise.resolve([]),
+    countTradesPerAccount(ctx.accounts.map((a) => a.id)),
+  ]);
   const current = ctx.timeZone;
   const speed = verdictFor(health.dbMs);
 
@@ -93,6 +101,31 @@ export default async function Settings() {
           </div>
         </Card>
       )}
+
+      <Card>
+        <Eyebrow>Your accounts</Eyebrow>
+        <Verdict>
+          {ctx.accounts.length === 1
+            ? "Everything you import goes into this one. Add another to keep a demo run, a funded account or a second broker apart."
+            : "Switching changes every figure in the app at once. Nothing is ever mixed between them."}
+        </Verdict>
+        <Accounts
+          accounts={ctx.accounts.map((a) => ({
+            id: a.id, nickname: a.nickname, broker: a.broker, currency: a.currency,
+            kind: a.accountKind, trades: tradeCounts[a.id] ?? 0, active: a.id === ctx.account.id,
+          }))}
+        />
+        <Info title="Why keep them apart">
+          A demo run averaged into a live one produces a figure describing neither, and a funded
+          account traded at different size under different rules is effectively a different
+          trader&rsquo;s results in the same person&rsquo;s hands. Every number in this app —
+          the edge, the break-even win rate, the calendar, the playbook — is computed for the
+          account you are showing and nothing else.
+          <br /><br />
+          Price history is the one exception, and it is shared on purpose: a gold candle at
+          14:32 is the same candle whichever account was trading it.
+        </Info>
+      </Card>
 
       <Card>
         <Eyebrow>Put it on your home screen</Eyebrow>

@@ -1,5 +1,5 @@
 import { unstable_cache } from "next/cache";
-import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { positions, zoneTrades } from "@/lib/db/schema";
 import { requireContext } from "@/lib/session";
@@ -201,4 +201,21 @@ export async function loadTradeWithLegs(accountId: string, identityHash: string)
 
   const rows = await db.select().from(positions).where(eq(positions.accountId, accountId));
   return clusterPositions(toDomain(rows)).find((z) => z.id === identityHash) ?? null;
+}
+
+/**
+ * How many trades sit under each account.
+ *
+ * One grouped statement rather than one per account: the settings page lists
+ * every account a person has, and asking separately would turn a page that
+ * shows two accounts into a page that makes two crossings to say so.
+ */
+export async function countTradesPerAccount(ids: string[]): Promise<Record<string, number>> {
+  if (!ids.length) return {};
+  const rows = await db
+    .select({ accountId: zoneTrades.accountId, n: sql<number>`count(*)::int` })
+    .from(zoneTrades)
+    .where(inArray(zoneTrades.accountId, ids))
+    .groupBy(zoneTrades.accountId);
+  return Object.fromEntries(rows.map((r) => [r.accountId, r.n]));
 }
