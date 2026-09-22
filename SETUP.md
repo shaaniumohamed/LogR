@@ -108,15 +108,52 @@ AUTH_SECRET       <the generated secret>
 AUTH_GOOGLE_ID    <from Google>
 AUTH_GOOGLE_SECRET
 AUTH_URL          https://YOUR-APP.vercel.app
-ALLOWED_EMAILS    you@example.com,friend@example.com   (optional)
+OWNER_EMAILS      you@example.com                      (optional)
 TWELVEDATA_API_KEY  <free key, for automatic candles>  (optional)
 ```
 
-`ALLOWED_EMAILS` is the private-beta gate: leave it empty and anyone with a Google
-account can sign in; set it and only those addresses can.
+`OWNER_EMAILS` is the gate: leave it empty and anyone with a Google account can
+sign in; set it and only those addresses can, plus anyone they invite from the
+settings screen. `ALLOWED_EMAILS` is still read, under its older name.
 
 Redeploy after adding the variables, and add the production callback URL to Google
 if you have not already.
+
+## When the deployed app errors right after signing in
+
+A blank page saying the page couldn't load, with a number on it, the moment you
+get past Google. That is almost never the login. It is the deployed code being
+newer than the database it talks to: the code asks for a column, the database
+does not have it, and every page dies as soon as it looks you up.
+
+Open **/api/health** on the deployment. It needs no sign-in — which is the point,
+since signing in is what is broken — and it names exactly what is absent:
+
+```
+{"ok":false,"database":"behind","missing":["invite","user.active_account_id"]}
+```
+
+If you have already run `npm run db:push` and nothing changed, it reached a
+different database than the deployment uses. That is the usual cause, and it is
+easy to do: a Neon project can have several branches, and `.env.local` may point
+at one while Vercel points at another. Compare them — **Project → Settings →
+Environment Variables → DATABASE_URL** against the line in your own `.env.local`.
+If they differ, that is the whole bug.
+
+To run against the deployment's own database rather than a guess:
+
+```bash
+vercel env pull .env.production.local --environment=production
+```
+
+That writes the real production values to a file. Copy its `DATABASE_URL` line
+into `.env.local`, run `npm run db:push`, then **put `.env.local` back** — while
+the production string is in it, `npm run dev` on your laptop is writing to the
+live database. Both files are gitignored; neither belongs in a commit.
+
+Applying `drizzle/schema.sql` in Neon's SQL Editor does the same job, and since
+it only ever adds, running it on every branch in the project is safe and saves
+working out which branch is the stale one.
 
 ---
 
