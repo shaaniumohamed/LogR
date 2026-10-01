@@ -109,22 +109,51 @@ export interface Stats {
 /**
  * Something the trader marked on the chart.
  *
- * One shape covers everything they actually draw. A demand zone, a supply zone,
- * a liquidity pool and a fib pocket are all a price band with a name; a level is
- * the same band with zero height. Collapsing them into one record means the
- * chart has one renderer and the analytics have one thing to count, instead of
- * four near-identical shapes that drift apart.
+ * Two families, because they answer different questions. A LEVEL or a ZONE is
+ * a price and nothing else — it runs across the whole chart, at every
+ * timeframe, and it is what the Levels view pools across trades ("this band has
+ * been traded fifteen times"). A BOX, a TREND line and a NOTE are pinned to
+ * particular candles as well, because what they record happened at a moment:
+ * the order block that formed at 09:15, the sweep of the Asian low, the candle
+ * that was the reason to get in.
  *
- * `low`/`high` are prices, not screen coordinates — a drawing that moved when
- * the chart was zoomed would be worthless.
+ * Every coordinate is a price or a time, never a screen position — a drawing
+ * that moved when the chart was zoomed would be worthless. Times are the open
+ * time of the candle the point was placed on, in epoch seconds (UTC), so the
+ * same note lands on the right candle at the one minute and at the daily.
  */
-export interface Drawing {
+export type DrawColor = "amber" | "green" | "red" | "blue";
+
+interface DrawingBase {
   /** Stable within one trade; used as a React key and to delete. */
   id: string;
+  /** A preset name, free text the trader typed, or — for a note — the note itself. */
+  label: string;
+  /** Absent on drawings saved before colours existed; they read as amber. */
+  color?: DrawColor;
+}
+
+/** A horizontal line or band across the whole chart. */
+export interface PriceDrawing extends DrawingBase {
   kind: "zone" | "level";
   low: number;
   /** Equal to `low` for a level. */
   high: number;
-  /** One of DRAWING_LABELS, or free text the trader typed. */
-  label: string;
 }
+
+/** Two corners of a box, or the two ends of a trend line. */
+export interface AnchoredDrawing extends DrawingBase {
+  kind: "box" | "trend";
+  t1: number; p1: number;
+  t2: number; p2: number;
+  /** Carried on to the right edge of the chart: an unmitigated block, a ray. */
+  extend?: boolean;
+}
+
+/** A written note pinned to one candle at one price. */
+export interface NoteDrawing extends DrawingBase {
+  kind: "note";
+  t1: number; p1: number;
+}
+
+export type Drawing = PriceDrawing | AnchoredDrawing | NoteDrawing;

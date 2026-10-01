@@ -1,3 +1,5 @@
+import { revalidateTag } from "next/cache";
+import { MARKET_TAG } from "@/lib/queries";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { and, between, eq, sql } from "drizzle-orm";
@@ -124,6 +126,8 @@ export async function POST(req: Request) {
       },
     });
   }
+  // The near-close leak reads its closes from this series.
+  revalidateTag(MARKET_TAG, { expire: 0 });
 
   return NextResponse.json({
     ok: true,

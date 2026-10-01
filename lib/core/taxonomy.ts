@@ -154,24 +154,54 @@ export const mistakeLabel = (key: string) =>
   MISTAKES.find((m) => m.key === key)?.label ?? key;
 
 /**
- * What a drawing on the chart is FOR.
+ * What a drawing on the chart is FOR, offered as one-tap names per tool.
  *
  * Kept to the things this trader actually marks, and worded the way MSNR and
  * SMC talk about them, so a label can later be cross-referenced with the
  * confluence tags on the same trade: "your fresh demand zones return 3× what
  * your unfresh ones do" is only possible if both sides use the same words.
+ * Each carries the colour a chart reader expects — demand and support green,
+ * supply and resistance red — so a preset is also a sensible default colour.
+ *
+ * Notes get the moments that are a REASON to take a trade, because that is
+ * what a note on a candle is for: pointing at the thing that made you click.
  */
-export const DRAWING_LABELS = [
-  { key: "demand", label: "Demand zone", kind: "zone" },
-  { key: "supply", label: "Supply zone", kind: "zone" },
-  { key: "flip", label: "Flip level", kind: "zone" },
-  { key: "liquidity", label: "Liquidity", kind: "level" },
-  { key: "target", label: "Target", kind: "level" },
-  { key: "structure", label: "Structure", kind: "level" },
-] as const;
-
-export const drawingLabel = (key: string) =>
-  DRAWING_LABELS.find((d) => d.key === key)?.label ?? key;
+export const DRAWING_PRESETS = {
+  level: [
+    { label: "Support", color: "green" },
+    { label: "Resistance", color: "red" },
+    { label: "Flip level", color: "amber" },
+    { label: "Liquidity", color: "blue" },
+    { label: "Target", color: "amber" },
+    { label: "Structure", color: "amber" },
+  ],
+  zone: [
+    { label: "Demand zone", color: "green" },
+    { label: "Supply zone", color: "red" },
+    { label: "Flip level", color: "amber" },
+    { label: "Liquidity", color: "blue" },
+  ],
+  box: [
+    { label: "Demand zone", color: "green" },
+    { label: "Supply zone", color: "red" },
+    { label: "Order block", color: "amber" },
+    { label: "Fair value gap", color: "blue" },
+    { label: "Asian range", color: "blue" },
+  ],
+  trend: [
+    { label: "Trendline", color: "amber" },
+    { label: "Structure", color: "amber" },
+    { label: "Channel", color: "blue" },
+  ],
+  note: [
+    { label: "Entry trigger", color: "blue" },
+    { label: "Liquidity sweep", color: "blue" },
+    { label: "Break of structure", color: "amber" },
+    { label: "Change of character", color: "amber" },
+    { label: "Rejection", color: "amber" },
+    { label: "News spike", color: "red" },
+  ],
+} as const satisfies Record<string, readonly { label: string; color: "amber" | "green" | "red" | "blue" }[]>;
 
 /**
  * Starter rules, offered rather than imposed.

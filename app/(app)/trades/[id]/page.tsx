@@ -5,6 +5,8 @@ import { storageConfigured } from "@/lib/storage";
 import { Screenshots } from "./screenshots";
 import { loadTradeWithLegs, loadTrades } from "@/lib/queries";
 import { pointValuePerLot } from "@/lib/core/metrics";
+import { excursion } from "@/lib/core/excursion";
+import { ExcursionCard } from "@/components/excursion-card";
 import { TradeChart } from "@/components/trade-chart";
 import { contextWindow, fetchWindow, loadBars, loadHtfAround } from "@/lib/candles";
 import { closureGapIn, coversFills } from "@/lib/core/window";
@@ -117,6 +119,9 @@ export default async function TradeDetail({ params, searchParams }: {
    * is out by whatever the real contract size happens to be.
    */
   const perPoint = pointValuePerLot(all);
+  // The path the trade took, from the minute bars already loaded for the chart
+  // and the fills already loaded for the header — no extra reads.
+  const path = withLegs && perPoint ? excursion(withLegs.legs, bars, perPoint) : null;
   const risk = perPoint ? Math.abs(t.avgEntry - (existing?.invalidation ?? suggested)) * perPoint * t.lots : 0;
   const rMultiple = risk > 0 ? t.netPnl / risk : null;
 
@@ -180,6 +185,8 @@ export default async function TradeDetail({ params, searchParams }: {
           was dead.
         </Info>
       </Card>
+
+      {path && <ExcursionCard x={path} />}
 
       {nearClose && !overWeekend && (
         <Card className="!border-[color:var(--warn)]">
@@ -298,9 +305,17 @@ export default async function TradeDetail({ params, searchParams }: {
                 The solid blue band is the range your ladder actually filled into; it is drawn
                 from your fills, not from anything you typed.
                 <br /><br />
-                Your own mark-up appears as dashed gold bands. Draw the level you were trading
-                and the zone your fills landed in becomes something you can compare it against:
-                did you get filled where you meant to, or did you chase?
+                <b>Marking up.</b> Pick a tool under the chart, then tap the chart:
+                a <b>Line</b> or <b>Zone</b> for a price level, a <b>Box</b> for an order block
+                or a range that starts at a candle, a <b>Trend</b> line, or a <b>Note</b> pinned
+                to the candle that made you take the trade. Tap anything you drew to name it,
+                recolour it, drag it, or delete it. It saves by itself as you go, and shows on
+                every timeframe — a level drawn on the daily is there on the one minute.
+                <br /><br />
+                Draw the level you were trading and the zone your fills landed in becomes
+                something to compare it against: did you get filled where you meant to, or did
+                you chase? Lines, zones and boxes also feed <b>Levels</b> in Insights, which
+                adds up every trade taken at the same price.
                 <br /><br />
                 The red dashed line is your invalidation, set in the form below.
                 <br /><br />

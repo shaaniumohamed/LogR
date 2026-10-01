@@ -1,3 +1,5 @@
+import { revalidateTag } from "next/cache";
+import { MARKET_TAG } from "@/lib/queries";
 import { and, asc, between, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { economicEvents } from "@/lib/db/schema";
@@ -57,10 +59,12 @@ export async function saveEvents(events: NewsEvent[]): Promise<number> {
       .returning({ at: economicEvents.at });
     stored += res.length;
   }
+  if (stored) revalidateTag(MARKET_TAG, { expire: 0 });
   return stored;
 }
 
 /** Remove everything derived, so a re-derivation cannot leave stale rows behind. */
 export async function clearDerived(): Promise<void> {
   await db.delete(economicEvents).where(and(eq(economicEvents.source, "derived")));
+  revalidateTag(MARKET_TAG, { expire: 0 });
 }

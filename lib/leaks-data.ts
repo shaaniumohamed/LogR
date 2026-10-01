@@ -1,4 +1,6 @@
+import { unstable_cache } from "next/cache";
 import { loadAnnotations } from "@/lib/actions";
+import { MARKET_TAG, accountTrades, insightsTag, tradesTag, withinPeriod, type PeriodKey } from "@/lib/queries";
 import { loadEvents } from "@/lib/news";
 import { loadHtfBars } from "@/lib/candles";
 import { newsWindow, type NewsEvent } from "@/lib/core/news";
@@ -73,4 +75,29 @@ function mostTraded(trades: ZoneTrade[]): string {
   const n = new Map<string, number>();
   for (const t of trades) n.set(t.symbol, (n.get(t.symbol) ?? 0) + 1);
   return [...n.entries()].sort((a, b) => b[1] - a[1])[0][0];
+}
+
+/**
+ * The ranking for Home, cached across requests.
+ *
+ * Ranking tests fifty-odd habits against every trade, and Home is the page
+ * opened most. Its inputs change rarely — an import, a note, a new news file —
+ * so the answer is kept and cleared by exactly those events:
+ *
+ *   trades:<account>    an import, an undo, or clearing the history
+ *   insights:<account>  a trade written up, or the time zone changed
+ *   market-data         price history or the news calendar changed
+ *
+ * The hour ceiling is a backstop, so a tag that is ever missed cannot leave a
+ * stale finding up for more than an hour.
+ */
+export function cachedLeaks(accountId: string, period: PeriodKey, timeZone: string, limit = 5): Promise<Leak[]> {
+  return unstable_cache(
+    async () => {
+      const trades = withinPeriod(await accountTrades(accountId), period);
+      return leaksFor(trades, timeZone, accountId, limit);
+    },
+    ["leaks", accountId, period, timeZone, String(limit)],
+    { tags: [tradesTag(accountId), insightsTag(accountId), MARKET_TAG], revalidate: 3600 },
+  )();
 }

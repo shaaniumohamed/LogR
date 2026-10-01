@@ -21,6 +21,16 @@ export function resolvePeriod(raw?: string): PeriodKey {
 export const tradesTag = (accountId: string) => `trades:${accountId}`;
 
 /**
+ * Derived findings that depend on more than the trades: what the trader wrote
+ * about them, and the time zone they are bucketed in. Cleared by those writes,
+ * as well as by everything that clears the trades.
+ */
+export const insightsTag = (accountId: string) => `insights:${accountId}`;
+
+/** Price history and the news calendar: shared across accounts, cleared together. */
+export const MARKET_TAG = "market-data";
+
+/**
  * Dates do not survive a cache round trip, so the wire form carries epoch
  * milliseconds and they are rebuilt on the way out. Getting this wrong is the
  * classic failure with a serialising cache: the objects come back looking right
@@ -75,6 +85,35 @@ async function cachedTrades(accountId: string): Promise<Wire[]> {
 }
 
 /**
+ * An account's trades, from the cross-request cache, WITHOUT reading the
+ * request. Separate from loadTrades so that another cached computation can
+ * build on it: a cache scope may not touch cookies, and loadTrades has to, to
+ * know whose trades to load. The caller here has already established that.
+ */
+export async function accountTrades(accountId: string): Promise<ZoneTrade[]> {
+  const wire = await cachedTrades(accountId);
+  return wire.map((w) => ({
+    ...w,
+    legs: [],
+    openedAt: new Date(w.openedAt),
+    closedAt: new Date(w.closedAt),
+  }));
+}
+
+/**
+ * The slice of a history a period covers, newest first.
+ *
+ * Relative to the newest trade, not to today — an imported history that ends
+ * last month would otherwise show an empty "30 days" and look broken.
+ */
+export function withinPeriod(all: ZoneTrade[], period: PeriodKey): ZoneTrade[] {
+  const days = PERIODS.find((p) => p.key === period)!.days;
+  if (days === null || !all.length) return all;
+  const cutoff = all[0].closedAt.getTime() - days * 86400000;
+  return all.filter((t) => t.closedAt.getTime() >= cutoff);
+}
+
+/**
  * Loads the account's trades once, for every page.
  *
  * Period is a correctness feature, not a convenience. Real data showed the most
@@ -84,24 +123,8 @@ async function cachedTrades(accountId: string): Promise<Wire[]> {
  */
 export async function loadTrades(period: PeriodKey = "all") {
   const { userId, account, timeZone } = await requireContext();
-  const wire = await cachedTrades(account.id);
-
-  const all: ZoneTrade[] = wire.map((w) => ({
-    ...w,
-    legs: [],
-    openedAt: new Date(w.openedAt),
-    closedAt: new Date(w.closedAt),
-  }));
-
-  const days = PERIODS.find((p) => p.key === period)!.days;
-  let trades = all;
-  if (days !== null && all.length) {
-    // Relative to the newest trade, not to today — an imported history that ends
-    // last month would otherwise show an empty "30 days" and look broken.
-    const newest = all[0].closedAt.getTime();
-    const cutoff = newest - days * 86400000;
-    trades = all.filter((t) => t.closedAt.getTime() >= cutoff);
-  }
+  const all = await accountTrades(account.id);
+  const trades = withinPeriod(all, period);
 
   return {
     userId,
@@ -179,6 +202,22 @@ const toDomain = (rows: (typeof positions.$inferSelect)[]) =>
  * because of an invariant in another module, and if that ever changes the right
  * outcome is a slow page rather than a trade that cannot be opened.
  */
+/**
+ * Trades with their legs, for every position opened in a span.
+ *
+ * Re-clustered from the fills rather than read from zone_trade, because the
+ * stored trades carry no legs — and a trade's identity is a hash OF its legs,
+ * so a cluster formed here matches the stored one exactly. A trade that
+ * straddles the edge of the span comes out different and simply does not
+ * match, which is why callers pad the span.
+ */
+export async function loadTradesWithLegsBetween(accountId: string, from: Date, to: Date): Promise<ZoneTrade[]> {
+  const rows = await db.select().from(positions)
+    .where(and(eq(positions.accountId, accountId), gte(positions.openedAt, from), lte(positions.openedAt, to)))
+    .orderBy(asc(positions.openedAt), asc(positions.ticket));
+  return clusterPositions(toDomain(rows));
+}
+
 export async function loadTradeWithLegs(accountId: string, identityHash: string) {
   const [meta] = await db
     .select({ openedAt: zoneTrades.openedAt, closedAt: zoneTrades.closedAt })

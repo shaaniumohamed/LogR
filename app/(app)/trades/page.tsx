@@ -12,6 +12,7 @@ import { PeriodTabs } from "@/components/period-tabs";
 import { Filters, Segmented, type FilterGroup } from "@/components/filters";
 import { Card, Empty, Stat, StatGrid, count, money, pct } from "@/components/ui";
 import type { ZoneTrade } from "@/lib/core/types";
+import { drawingBand } from "@/lib/core/drawings";
 
 export const dynamic = "force-dynamic";
 
@@ -193,8 +194,10 @@ export default async function Trades({ searchParams }: {
   if (band) {
     const [lo, hi] = band;
     filtered = filtered.filter((t) =>
-      (byHash.get(t.id)?.drawings ?? []).some((d) =>
-        Math.min(d.low, d.high) <= hi && Math.max(d.low, d.high) >= lo));
+      (byHash.get(t.id)?.drawings ?? []).some((d) => {
+        const b = drawingBand(d);
+        return !!b && b.low <= hi && b.high >= lo;
+      }));
   }
   if (news) {
     // Only loaded when the filter is on: a release calendar is shared by every

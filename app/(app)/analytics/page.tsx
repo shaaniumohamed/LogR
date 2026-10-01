@@ -12,6 +12,8 @@ import { LEFT_BUCKETS, caughtByClose, closuresIn, leftBucket, sessionLeftAt, typ
 import { loadHtfBars } from "@/lib/candles";
 import { LeaksCard } from "@/components/leaks-card";
 import { leaksFrom } from "@/lib/leaks-data";
+import { HeatCard } from "@/components/heat-card";
+import { cachedExcursions } from "@/lib/excursion-data";
 import { Icon, type IconName } from "@/components/icons";
 import { loadEvents } from "@/lib/news";
 import { loadExits, loadTrades, resolvePeriod } from "@/lib/queries";
@@ -21,6 +23,7 @@ import { zoneName } from "@/lib/timezones";
 import { BarChart, Heatmap, Histogram, type BarRow } from "@/components/charts";
 import { Card, Empty, Eyebrow, Note, Stat, StatGrid, Verdict, count, money, money0, pct } from "@/components/ui";
 import type { ZoneTrade } from "@/lib/core/types";
+import { drawingBand } from "@/lib/core/drawings";
 
 export const dynamic = "force-dynamic";
 
@@ -320,9 +323,10 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
    * unrelated ones, which is the case a level trader most wants to see.
    */
   const marks: Mark[] = trades.flatMap((t) =>
-    (byHash.get(t.id)?.drawings ?? []).map((d) => ({
-      tradeId: t.id, low: d.low, high: d.high, label: d.label, netPnl: t.netPnl, at: t.closedAt,
-    })));
+    (byHash.get(t.id)?.drawings ?? []).flatMap((d) => {
+      const b = drawingBand(d);
+      return b ? [{ tradeId: t.id, low: b.low, high: b.high, label: d.label, netPnl: t.netPnl, at: t.closedAt }] : [];
+    }));
   const levels = clusterLevels(marks).filter((l) => l.trades >= 3).slice(0, 8);
 
   /*
@@ -444,6 +448,8 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
 
   // Ranked from the same reads the rest of this page uses — no extra queries.
   const leaks = leaksFrom(trades, timeZone, annotations, events, hourly, 8);
+  // Only the Risk tab shows heat, so only the Risk tab pays for measuring it.
+  const heat = view === "risk" ? await cachedExcursions(account.id, period) : [];
 
   const overWeekend = trades.filter((t) => heldOverWeekend(t.openedAt, t.closedAt));
   const weekendStats = computeStats(overWeekend);
@@ -1095,6 +1101,7 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
       {sec_dir}
     </>,
     risk: <>
+      <HeatCard items={heat} />
       {sec_dist}
       {sec_ended}
       {sec_stops}

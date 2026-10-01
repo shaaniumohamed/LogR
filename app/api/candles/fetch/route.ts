@@ -1,3 +1,5 @@
+import { revalidateTag } from "next/cache";
+import { MARKET_TAG } from "@/lib/queries";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { and, between, eq, sql } from "drizzle-orm";
@@ -128,6 +130,8 @@ export async function POST(req: Request) {
       },
     });
   }
+  // Heat and room on every trade in this span can now be measured.
+  revalidateTag(MARKET_TAG, { expire: 0 });
 
   return NextResponse.json({
     ok: true,

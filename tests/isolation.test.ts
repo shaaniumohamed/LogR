@@ -81,6 +81,23 @@ run("one trader cannot reach another's journal", () => {
       expect(mine?.drawings ?? null).toBeNull();
     });
 
+    it("refuses a quick write-up on a trade belonging to someone else", async () => {
+      asUser(BOB);
+      const form = new FormData();
+      form.set("identityHash", "u-alice-trade-1");
+      form.set("setup", "Sweep + reversal");
+      form.set("emotion", "fomo");
+      form.set("rules", "kept");
+      form.set("note", "BOB WAS HERE");
+      const r = await actions.saveQuickNote(null, form);
+      expect(r.ok).toBe(false);
+
+      asUser(ALICE);
+      const mine = await actions.loadAnnotation("a-alice", "u-alice-trade-1");
+      expect(mine?.note).toBe("SECRET-NOTE-OF-ALICE-1");
+      expect(mine?.emotion).not.toBe("fomo");
+    });
+
     it("still lets each of them write on their own", async () => {
       asUser(BOB);
       const form = new FormData();
@@ -180,6 +197,9 @@ run("one trader cannot reach another's journal", () => {
       const form = new FormData();
       form.set("note", "hello");
       expect((await actions.saveAnnotation("u-alice-trade-0", form)).ok).toBe(false);
+      form.set("identityHash", "u-alice-trade-0");
+      expect((await actions.saveQuickNote(null, form)).ok).toBe(false);
+      expect((await actions.saveDrawings("u-alice-trade-0", [])).ok).toBe(false);
       expect((await actions.saveWeeklyNote("2026-09-14", new FormData())).ok).toBe(false);
       expect((await actions.addRule(null, new FormData())).error).toBeTruthy();
     });

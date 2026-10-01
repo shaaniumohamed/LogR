@@ -12,7 +12,9 @@ import { MonthCalendar, PeriodTrend } from "@/components/month-calendar";
 import { monthLabel } from "@/lib/core/calendar";
 import { BarChart, HeroCurve, VersusBar } from "@/components/charts";
 import { LeaksCard } from "@/components/leaks-card";
-import { leaksFor } from "@/lib/leaks-data";
+import { cachedLeaks } from "@/lib/leaks-data";
+import { cachedDiscipline } from "@/lib/discipline-data";
+import { DisciplineCard } from "@/components/discipline-card";
 import { Info } from "@/components/info";
 import { Card, Estimated, Eyebrow, Stat, StatGrid, Verdict, count, money, money0, pct } from "@/components/ui";
 import type { ZoneTrade } from "@/lib/core/types";
@@ -65,7 +67,10 @@ export default async function Dashboard({ searchParams }: {
   if (isEmpty) return <GettingStarted setup={setup} firstTradeHref={null} />;
 
   // The habits costing money, over the same period as everything else here.
-  const leaks = await leaksFor(trades, timeZone, ctx.account.id, 3);
+  const [leaks, discipline] = await Promise.all([
+    cachedLeaks(ctx.account.id, period, timeZone, 3),
+    cachedDiscipline(ctx.account.id, timeZone),
+  ]);
 
   const fmtDay = (d: string) =>
     new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
@@ -206,6 +211,8 @@ export default async function Dashboard({ searchParams }: {
         <Stat label="Green days" value={`${upDays} of ${days.length}`}
               sub={days.length ? pct(upDays / days.length, 0) : undefined} />
       </StatGrid>
+
+      <DisciplineCard d={discipline} />
 
       {/*
         "Is anything wrong?" — the habits costing money, next to the calendar

@@ -1,3 +1,4 @@
+import { isWritten, judgedNotes } from "@/lib/core/discipline";
 import Link from "next/link";
 import { computeStats } from "@/lib/core/metrics";
 import { tagContrast } from "@/lib/core/analysis";
@@ -73,8 +74,7 @@ export default async function Playbook({ searchParams }: {
    * which is exactly what happens when somebody adopts a rule and then goes back
    * through their history with it in mind.
    */
-  const written = notes.filter((a) => a.note || a.setup || a.emotion
-    || a.confluences?.length || a.mistakes?.length || a.rulesBroken?.length);
+  const written = notes.filter(isWritten);
   const pnlOf = new Map(trades.map((t) => [t.id, t.netPnl]));
 
   const ruleRows: RuleRow[] = rules.map((r) => {
@@ -90,10 +90,8 @@ export default async function Playbook({ searchParams }: {
 
   // The score is over trades judged against ANY rule, so adopting a new rule
   // does not dilute it with trades that never had a chance to break it.
-  const earliestRule = rules.length ? rules.reduce((a, b) => (b.createdAt < a.createdAt ? b : a)).createdAt : null;
-  const judged = earliestRule
-    ? written.filter((a) => a.updatedAt >= earliestRule && pnlOf.has(a.identityHash))
-    : [];
+  // Shared with the discipline streak on Home, so the two can never disagree.
+  const judged = judgedNotes(notes, rules).filter((a) => pnlOf.has(a.identityHash));
   const clean = judged.filter((a) => !a.rulesBroken?.length);
   const broken = judged.filter((a) => a.rulesBroken?.length);
   const cleanStats = computeStats(clean.map((a) => trades.find((t) => t.id === a.identityHash)!).filter(Boolean));

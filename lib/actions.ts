@@ -5,11 +5,13 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { importBatches, invites, positions, tradeAnnotations, tradeScreenshots, tradingAccounts, tradingRules, users, weeklyNotes, zoneTrades } from "@/lib/db/schema";
 import { rebuildZoneTrades } from "@/lib/derive";
-import { tradesTag } from "@/lib/queries";
+import { insightsTag, tradesTag } from "@/lib/queries";
 import { viewUrl } from "@/lib/storage";
 import { requestContext } from "@/lib/session";
 import { isOwner, looksLikeEmail, normaliseEmail } from "@/lib/access";
 import type { Drawing } from "@/lib/core/types";
+import { FEELINGS } from "@/lib/core/taxonomy";
+import { cleanDrawings } from "@/lib/core/drawings";
 import { readOrDegrade } from "@/lib/db/schema-check";
 
 /**
@@ -97,6 +99,8 @@ export async function saveAnnotation(identityHash: string, form: FormData) {
   revalidatePath("/trades");
   revalidatePath("/review");
   revalidatePath("/analytics");
+  // A note can change what counts as a leak — a feeling, a mistake, a broken rule.
+  revalidateTag(insightsTag(account.id), { expire: 0 });
   return { ok: true };
 }
 
@@ -111,6 +115,86 @@ export async function saveAnnotation(identityHash: string, form: FormData) {
  *
  * Only the drawings column is written, so the two can never overwrite each other.
  */
+/**
+ * The three-question write-up: setup, feeling, rules — and a note if there is one.
+ *
+ * MERGES rather than replaces. The full form owns every field and rewrites them
+ * all; this one owns four, so saving it over a trade that already had
+ * confluences, mistakes or a timeframe tagged must leave those exactly where
+ * they were. A quick save that quietly wiped a careful write-up would teach
+ * the trader not to use it.
+ *
+ * The rules answer is REQUIRED when rules exist, and is never inferred. A trade
+ * judged with nothing broken counts as clean on the discipline streak, so a
+ * sheet that skipped the question would mark every quick write-up as a day of
+ * perfect discipline — the streak would measure how fast people tap Save.
+ */
+export async function saveQuickNote(_prev: { ok?: boolean; error?: string } | null, form: FormData) {
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return { ok: false, error: "Not signed in" };
+  const { userId, account } = ctx;
+
+  const identityHash = String(form.get("identityHash") ?? "");
+  if (!(await ownsTrade(account.id, identityHash))) {
+    return { ok: false, error: "No such trade on this account." };
+  }
+
+  const str = (k: string) => {
+    const v = form.get(k);
+    const t = typeof v === "string" ? v.trim() : "";
+    return t === "" ? null : t;
+  };
+
+  const rules = await loadRules(account.id);
+  const activeIds = new Set(rules.filter((r) => r.active).map((r) => r.id));
+  const answer = str("rules");
+  if (activeIds.size && answer !== "kept" && answer !== "broke") {
+    return { ok: false, error: "Did you keep your rules on this one?" };
+  }
+  const rulesBroken = answer === "broke"
+    ? form.getAll("rulesBroken").map(String).filter((id) => activeIds.has(id))
+    : [];
+  if (answer === "broke" && !rulesBroken.length) {
+    return { ok: false, error: "Tick the rule you broke." };
+  }
+
+  const setup = str("setup")?.slice(0, 80) ?? null;
+  const emotion = str("emotion");
+  const note = str("note")?.slice(0, 2000) ?? null;
+  /*
+   * The sheet is three questions and saves only with all three answered.
+   * Partly because each one feeds a different part of Patterns, and partly
+   * because "kept my rules" alone leaves an empty row behind — nothing that
+   * could tell a judged trade from one never looked at, so the streak would
+   * not see it. "No setup — impulse" is an answer; skipping is not.
+   */
+  if (!setup) return { ok: false, error: "What was the setup?" };
+  if (!emotion || !FEELINGS.some((f) => f.key === emotion)) {
+    return { ok: false, error: "How did you feel taking it?" };
+  }
+
+  await db
+    .insert(tradeAnnotations)
+    .values({ userId, accountId: account.id, identityHash, setup, emotion, note, rulesBroken, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: [tradeAnnotations.accountId, tradeAnnotations.identityHash],
+      set: {
+        // Only what this sheet asked; an empty note keeps the one already there.
+        setup,
+        emotion,
+        ...(note !== null ? { note } : {}),
+        rulesBroken,
+        updatedAt: new Date(),
+      },
+    });
+
+  revalidatePath("/trades");
+  revalidatePath("/review");
+  revalidatePath("/analytics");
+  revalidateTag(insightsTag(account.id), { expire: 0 });
+  return { ok: true };
+}
+
 export async function saveDrawings(identityHash: string, drawings: Drawing[]) {
   const ctx = await requestContext();
   if (!ctx?.hasAccess) return { ok: false, error: "Not signed in" };
@@ -119,13 +203,7 @@ export async function saveDrawings(identityHash: string, drawings: Drawing[]) {
     return { ok: false, error: "No such trade on this account." };
   }
 
-  const clean = drawings.slice(0, 40).map((d) => ({
-    id: String(d.id).slice(0, 40),
-    kind: d.kind === "zone" ? ("zone" as const) : ("level" as const),
-    low: Number(d.low),
-    high: Number(d.high),
-    label: String(d.label).slice(0, 40),
-  })).filter((d) => Number.isFinite(d.low) && Number.isFinite(d.high));
+  const clean = cleanDrawings(drawings);
 
   await db.insert(tradeAnnotations)
     .values({ userId, accountId: account.id, identityHash, drawings: clean, updatedAt: new Date() })
@@ -134,8 +212,13 @@ export async function saveDrawings(identityHash: string, drawings: Drawing[]) {
       set: { drawings: clean, updatedAt: new Date() },
     });
 
-  revalidatePath("/trades");
-  return { ok: true };
+  /*
+   * Nothing is revalidated, on purpose. Every page that reads drawings renders
+   * per request, so there is no cached copy to clear — and revalidating from an
+   * action re-renders the whole page underneath it, which for the trade page
+   * means reloading every candle each time a line is nudged and autosaved.
+   */
+  return { ok: true, count: clean.length };
 }
 
 export async function loadAnnotations(accountId: string) {
@@ -172,6 +255,8 @@ export async function setTimeZone(tz: string) {
     return { ok: false };
   }
   await db.update(users).set({ timeZone: tz }).where(eq(users.id, userId));
+  // Every hour and weekday is re-bucketed in the new zone, on every account.
+  for (const a of ctx.accounts) revalidateTag(insightsTag(a.id), { expire: 0 });
   revalidatePath("/", "layout");
   return { ok: true };
 }
@@ -308,6 +393,7 @@ export async function addRule(_prev: { error?: string } | null, form: FormData) 
     sortOrder: existing.length,
   });
   revalidatePath("/playbook");
+  revalidateTag(insightsTag(ctx.account.id), { expire: 0 });
   return {};
 }
 
@@ -327,6 +413,7 @@ export async function setRuleActive(_prev: unknown, form: FormData) {
   await db.update(tradingRules).set({ active })
     .where(and(eq(tradingRules.id, id), eq(tradingRules.accountId, ctx.account.id)));
   revalidatePath("/playbook");
+  revalidateTag(insightsTag(ctx.account.id), { expire: 0 });
   return {};
 }
 

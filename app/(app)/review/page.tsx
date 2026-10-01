@@ -1,12 +1,13 @@
 import Link from "next/link";
-import { loadAnnotations } from "@/lib/actions";
+import { loadAnnotations, loadRules } from "@/lib/actions";
 import { loadTrades } from "@/lib/queries";
 import { requireContext } from "@/lib/session";
 import { localDayKey } from "@/lib/core/metrics";
-import { confluenceLabel, feelingLabel, mistakeLabel } from "@/lib/core/taxonomy";
+import { FEELINGS, SETUPS, confluenceLabel, feelingLabel, mistakeLabel } from "@/lib/core/taxonomy";
 import { heldOverWeekend } from "@/lib/core/analysis";
 import { Card, Empty, Eyebrow, Note, Verdict, count, money, pct } from "@/components/ui";
 import { Info } from "@/components/info";
+import { QuickReviewList, type QuickOptions, type QuickTrade } from "@/components/quick-review";
 import type { ZoneTrade } from "@/lib/core/types";
 
 export const dynamic = "force-dynamic";
@@ -51,9 +52,10 @@ export default async function Review({ searchParams }: {
   const q = (sp.q ?? "").trim().slice(0, 80);
 
   const { account } = await requireContext();
-  const [{ all, timeZone, isEmpty }, annotations] = await Promise.all([
+  const [{ all, timeZone, isEmpty }, annotations, rules] = await Promise.all([
     loadTrades("all"),
     loadAnnotations(account.id),
+    loadRules(account.id),
   ]);
   if (isEmpty) return <Empty title="Nothing to review" body="Import your trade history first." />;
   const byHash = new Map(annotations.map((a) => [a.identityHash, a]));
@@ -119,6 +121,27 @@ export default async function Review({ searchParams }: {
   const pctDone = inSpan.length ? reviewed.length / inSpan.length : 0;
   const fmt = new Intl.DateTimeFormat("en-GB", {
     day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone,
+  });
+
+  /*
+   * What the quick sheet offers. Setups the trader has used before that are not
+   * in the standard list are kept, so an older custom tag is not silently
+   * replaced by a tap on something else.
+   */
+  const options: QuickOptions = {
+    setups: [...new Set<string>([...SETUPS, ...annotations.map((a) => a.setup).filter((s): s is string => !!s)])],
+    feelings: FEELINGS.map(({ key, label, good }) => ({ key, label, good })),
+    rules: rules.filter((r) => r.active).map(({ id, text }) => ({ id, text })),
+  };
+  const quick: QuickTrade[] = queue.map((t) => {
+    const a = byHash.get(t.id);
+    return {
+      id: t.id,
+      title: `${t.direction === "long" ? "Bought" : "Sold"} ${t.symbol}`,
+      meta: `${fmt.format(t.openedAt)} · ${t.legCount > 1 ? `${t.legCount} entries` : "1 entry"} · ${t.lots.toFixed(2)} lots`,
+      pnl: t.netPnl,
+      existing: a ? { setup: a.setup, emotion: a.emotion, note: a.note, rulesBroken: a.rulesBroken ?? [] } : null,
+    };
   });
 
   const href = (next: { tab?: string; span?: string; q?: string }) => {
@@ -193,13 +216,9 @@ export default async function Review({ searchParams }: {
           <Card className="!p-0">
             <div className="px-4 pt-4">
               <Eyebrow>Worth annotating first</Eyebrow>
-              <Note>Your largest results, biggest first. Each takes under a minute.</Note>
+              <Note>Your largest results, biggest first. Three quick questions each.</Note>
             </div>
-            <ul className="mt-3">
-              {queue.map((t, i) => (
-                <TradeRow key={t.id} t={t} n={i + 1} fmt={fmt} from="review" />
-              ))}
-            </ul>
+            <QuickReviewList trades={quick} options={options} />
             {pending.length > queue.length && (
               <div className="px-4 py-3 text-center text-[12px]"
                    style={{ borderTop: "1px solid var(--line)", color: "var(--ink3)" }}>
@@ -298,36 +317,5 @@ export default async function Review({ searchParams }: {
         </>
       )}
     </div>
-  );
-}
-
-function TradeRow({ t, n, fmt, from }: {
-  t: ZoneTrade; n: number; fmt: Intl.DateTimeFormat; from: string;
-}) {
-  return (
-    <li style={{ borderTop: "1px solid var(--line)" }}>
-      <Link href={`/trades/${t.id}?from=${from}`} className="flex items-center gap-3 px-4 py-3">
-        <span className="num w-5 shrink-0 text-[11px]" style={{ color: "var(--ink3)" }}>{n}</span>
-        <span className="h-7 w-1 shrink-0 rounded-full"
-              style={{ background: t.netPnl >= 0 ? "var(--profit)" : "var(--loss)" }} />
-        <div className="min-w-0 flex-1">
-          <div className="text-[13.5px] font-semibold">
-            {t.direction === "long" ? "Bought" : "Sold"} {t.symbol}
-            {heldOverWeekend(t.openedAt, t.closedAt) && (
-              <span className="ml-2 chip align-middle"
-                    style={{ color: "var(--warn)", border: "1px solid var(--warn)" }}>Weekend</span>
-            )}
-          </div>
-          <div className="num truncate text-[11px]" style={{ color: "var(--ink3)" }}>
-            {fmt.format(t.openedAt)} · {t.legCount > 1 ? `${t.legCount} entries` : "1 entry"} ·{" "}
-            {t.lots.toFixed(2)} lots
-          </div>
-        </div>
-        <span className={`num shrink-0 text-[14px] font-semibold ${t.netPnl >= 0 ? "pos" : "neg"}`}>
-          {money(t.netPnl)}
-        </span>
-        <span className="shrink-0" style={{ color: "var(--ink3)" }}>›</span>
-      </Link>
-    </li>
   );
 }

@@ -1,3 +1,5 @@
+import { revalidateTag } from "next/cache";
+import { MARKET_TAG } from "@/lib/queries";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { and, between, eq, sql } from "drizzle-orm";
@@ -64,6 +66,7 @@ export async function POST(req: Request) {
     written += slice.length;
   }
 
+  revalidateTag(MARKET_TAG, { expire: 0 });
   return NextResponse.json({ ok: true, written, symbol });
 }
 
@@ -98,5 +101,6 @@ export async function DELETE(req: Request) {
     : eq(priceBars.symbol, symbol);
 
   const removed = await db.delete(priceBars).where(where).returning({ t: priceBars.t });
+  revalidateTag(MARKET_TAG, { expire: 0 });
   return NextResponse.json({ ok: true, removed: removed.length });
 }
