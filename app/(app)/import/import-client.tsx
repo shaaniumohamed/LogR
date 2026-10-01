@@ -8,6 +8,9 @@ import { computeStats } from "@/lib/core/metrics";
 
 type Stage = { kind: "idle" } | { kind: "parsed"; res: ParseResult; filename: string }
   | { kind: "saving" } | { kind: "error"; message: string }
+  // The server thinks this file belongs to a different account. Nothing has
+  // been saved; the reader decides.
+  | { kind: "mismatch"; message: string; detail: string; res: ParseResult; filename: string }
   | { kind: "done"; inserted: number; duplicates: number; zoneTrades: number };
 
 const money = (n: number) => `${n < 0 ? "−" : ""}$${Math.abs(n).toFixed(2)}`;
@@ -26,7 +29,7 @@ export default function ImportClient() {
     }
   }
 
-  async function commit(res: ParseResult, filename: string) {
+  async function commit(res: ParseResult, filename: string, confirm = false) {
     setStage({ kind: "saving" });
     try {
       const r = await fetch("/api/import", {
@@ -35,12 +38,20 @@ export default function ImportClient() {
         body: JSON.stringify({
           filename,
           reportedNet: res.summary.net,
+          accountNumber: res.accountNumber ?? undefined,
+          confirm: confirm || undefined,
           positions: res.positions.map((p) => ({
             ...p, openedAt: p.openedAt.toISOString(), closedAt: p.closedAt.toISOString(),
           })),
         }),
       });
       const j = await r.json();
+      // 409 is the wrong-account check, and it is a question rather than a
+      // failure: nothing was saved, and the reader is the one who knows.
+      if (r.status === 409) {
+        setStage({ kind: "mismatch", message: j.error, detail: j.detail, res, filename });
+        return;
+      }
       if (!r.ok) throw new Error(j.error ?? "Import failed");
       setStage({ kind: "done", inserted: j.inserted, duplicates: j.duplicates, zoneTrades: j.zoneTrades });
       router.refresh();
@@ -109,22 +120,53 @@ export default function ImportClient() {
 
   if (stage.kind === "saving") return <div className="card p-6 text-sm">Importing…</div>;
 
+  /*
+   * The file looks like someone else's history.
+   *
+   * Phrased as a question with the safe answer first, and the reader has to
+   * reach past it to go on — the expensive mistake here is importing, not
+   * cancelling, so the easy button is the one that does nothing.
+   */
+  if (stage.kind === "mismatch") {
+    return (
+      <div className="card space-y-3 p-6" style={{ borderColor: "var(--warn)" }}>
+        <div className="eyebrow" style={{ color: "var(--warn)" }}>This might be the wrong file</div>
+        <p className="text-[14px] leading-relaxed">{stage.message}</p>
+        <p className="text-[13px] leading-relaxed" style={{ color: "var(--ink2)" }}>{stage.detail}</p>
+        <p className="text-[13px] leading-relaxed" style={{ color: "var(--ink2)" }}>
+          Nothing has been saved yet.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <button onClick={() => setStage({ kind: "idle" })}
+                  className="rounded-lg px-4 py-2.5 text-sm font-semibold"
+                  style={{ background: "var(--ink)", color: "var(--plane)" }}>
+            Cancel
+          </button>
+          <button onClick={() => commit(stage.res, stage.filename, true)}
+                  className="rounded-lg px-4 py-2.5 text-sm"
+                  style={{ border: "1px solid var(--line)", color: "var(--ink2)" }}>
+            Import it anyway
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (stage.kind === "done") {
     return (
       <div className="card space-y-3 p-6">
-        <div className="text-sm">
-          Imported <b>{stage.inserted}</b> new positions
-          {stage.duplicates > 0 && <> · {stage.duplicates} already had</>} ·{" "}
-          <b>{stage.zoneTrades}</b> zone trades after clustering.
+        <div className="text-sm leading-relaxed">
+          Added <b>{stage.inserted.toLocaleString("en-US")}</b> trades.
+          {stage.duplicates > 0 && <> {stage.duplicates.toLocaleString("en-US")} were already here, so they were skipped.</>}
         </div>
         <div className="flex gap-3">
           <a href="/dashboard" className="rounded-lg px-4 py-2.5 text-sm font-semibold"
              style={{ background: "var(--ink)", color: "var(--plane)" }}>
-            See the dashboard
+            See your trades
           </a>
           <button onClick={() => setStage({ kind: "idle" })}
             className="rounded-lg px-4 py-2.5 text-sm" style={{ color: "var(--ink2)" }}>
-            Import another chunk
+            Import another file
           </button>
         </div>
       </div>

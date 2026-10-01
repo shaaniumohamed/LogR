@@ -15,6 +15,14 @@ import type { CloseReason, Position } from "./types";
 
 export interface ParseResult {
   positions: Position[];
+  /**
+   * The account the file belongs to, when it says so.
+   *
+   * Not every broker export carries it, which is why it is nullable and why the
+   * import guard has a second way to tell. When it IS here it settles the
+   * question outright — a different number is a different account.
+   */
+  accountNumber: string | null;
   /** Rows the parser could not use, with the reason — surfaced, never silent. */
   skipped: { line: number; reason: string; raw: string }[];
   /** Exact repeats of an existing (ticket, closedAt) — the same exit twice. */
@@ -117,6 +125,10 @@ export function parseExnessCsv(text: string): ParseResult {
     );
   }
   const idx = (k: string) => header.indexOf(k);
+  // Brokers disagree about what to call it, and most call it nothing at all.
+  const loginIdx = ["login", "account", "account_id", "account_number", "trading_account"]
+    .map((k) => header.indexOf(k)).find((i) => i !== -1) ?? -1;
+  let accountNumber: string | null = null;
   const col = (cells: string[], k: string) => {
     const i = idx(k);
     return i === -1 ? undefined : cells[i];
@@ -137,6 +149,13 @@ export function parseExnessCsv(text: string): ParseResult {
       skipped.push({ line: i + 1, reason: `not a trade (type="${typeRaw}")`, raw });
       continue;
     }
+    // Taken from the first row that has one. A file carrying two different
+    // numbers is not one account's history, so the rest are not consulted.
+    if (accountNumber === null && loginIdx !== -1) {
+      const v = (cells[loginIdx] ?? "").trim();
+      if (/^\d{4,12}$/.test(v)) accountNumber = v;
+    }
+
     const lots = num(col(cells, "lots"));
     if (lots <= 0) { skipped.push({ line: i + 1, reason: "zero volume", raw }); continue; }
 
@@ -180,6 +199,7 @@ export function parseExnessCsv(text: string): ParseResult {
 
   return {
     positions,
+    accountNumber,
     skipped,
     duplicates,
     summary: {

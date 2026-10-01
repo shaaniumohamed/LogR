@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { and, between, count, eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { importBatches, positions, zoneTrades } from "@/lib/db/schema";
+import { importBatches, positions, tradingAccounts, zoneTrades } from "@/lib/db/schema";
 import { requestContext } from "@/lib/session";
-import { clusterPositions } from "@/lib/core/cluster";
+import { rebuildZoneTrades } from "@/lib/derive";
+import { accountNumberFromFilename, detectMismatch, sampleTickets } from "@/lib/core/import-guard";
 import { tradesTag } from "@/lib/queries";
 import type { Position } from "@/lib/core/types";
 
@@ -39,6 +40,10 @@ const PositionIn = z.object({
 const Body = z.object({
   filename: z.string().optional(),
   reportedNet: z.number().optional(),
+  /** The account number the file carries, when it carries one. */
+  accountNumber: z.string().optional(),
+  /** Set only after the reader has been shown a mismatch and chosen to go on. */
+  confirm: z.boolean().optional(),
   positions: z.array(PositionIn).min(1).max(20000),
 });
 
@@ -54,7 +59,60 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Malformed import payload" }, { status: 400 });
   }
-  const { filename, reportedNet, positions: rows } = parsed.data;
+  const { filename, reportedNet, accountNumber, confirm, positions: rows } = parsed.data;
+
+  /*
+   * Is this file even this account's?
+   *
+   * Checked HERE rather than in the browser, and not only because a stale page
+   * could skip it: the answer needs the stored history, and the browser has
+   * none of it.
+   *
+   * The account number decides when both sides have one. Otherwise the tickets
+   * do: a file covering dates this account already holds, sharing not one
+   * ticket with them, is not this account's record of those dates. Only a
+   * sample of tickets is sent to the database — a year of this trader's fills
+   * is tens of thousands, and four hundred of them answer the question just as
+   * well as all of them.
+   */
+  const fileLogin = accountNumber?.trim() || accountNumberFromFilename(filename ?? "") || null;
+  const span = rows.reduce(
+    (a, p) => ({
+      from: !a.from || p.openedAt < a.from ? p.openedAt : a.from,
+      to: !a.to || p.closedAt > a.to ? p.closedAt : a.to,
+    }),
+    { from: "", to: "" } as { from: string; to: string },
+  );
+
+  const [[existing], [matching]] = await Promise.all([
+    db.select({ n: count() }).from(positions).where(and(
+      eq(positions.accountId, account.id),
+      between(positions.closedAt, new Date(span.from), new Date(span.to)),
+    )),
+    db.select({ n: count() }).from(positions).where(and(
+      eq(positions.accountId, account.id),
+      inArray(positions.ticket, sampleTickets(rows.map((r) => r.ticket))),
+    )),
+  ]);
+
+  const mismatch = detectMismatch({
+    storedLogin: account.login,
+    fileLogin,
+    existingInSpan: Number(existing.n),
+    matchingTickets: Number(matching.n),
+  });
+
+  if (mismatch && !confirm) {
+    return NextResponse.json({
+      error: mismatch.kind === "login"
+        ? `This file is from account ${mismatch.found}, and “${account.nickname}” is account ${mismatch.stored}.`
+        : `This file covers dates “${account.nickname}” already has, but none of its trades are ones this account made.`,
+      reason: mismatch.kind,
+      detail: mismatch.kind === "login"
+        ? "Switch to the right journal, or add a new one for this account, before importing."
+        : "That usually means it is an export from a different account. Importing it would mix two accounts into one set of numbers.",
+    }, { status: 409 });
+  }
 
   const [batch] = await db.insert(importBatches).values({
     userId, accountId: account.id, filename, rowsParsed: rows.length, reportedNet,
@@ -90,52 +148,9 @@ export async function POST(req: Request) {
     inserted += res.length;
   }
 
-  // Rebuild the derived layer from everything we now hold. Derived rows are
-  // disposable by design; user annotations key to identityHash and are untouched.
-  const all = await db.select().from(positions).where(eq(positions.accountId, account.id));
-  const domain: Position[] = all.map((p) => ({
-    ticket: p.ticket,
-    openedAt: p.openedAt,
-    closedAt: p.closedAt,
-    direction: p.direction as "long" | "short",
-    symbol: p.symbol,
-    lots: p.lots,
-    openPrice: p.openPrice,
-    closePrice: p.closePrice,
-    stopLoss: p.stopLoss,
-    takeProfit: p.takeProfit,
-    commission: p.commission,
-    swap: p.swap,
-    profit: p.profit,
-    closeReason: p.closeReason as Position["closeReason"],
-  }));
-  const zones = clusterPositions(domain);
-
-  await db.delete(zoneTrades).where(eq(zoneTrades.accountId, account.id));
-  for (let i = 0; i < zones.length; i += CHUNK) {
-    await db.insert(zoneTrades).values(
-      zones.slice(i, i + CHUNK).map((z) => ({
-        accountId: account.id,
-        userId,
-        identityHash: z.id,
-        symbol: z.symbol,
-        direction: z.direction,
-        openedAt: z.openedAt,
-        closedAt: z.closedAt,
-        holdMinutes: z.holdMinutes,
-        legCount: z.legCount,
-        exitCount: z.exitCount,
-        lots: z.lots,
-        avgEntry: z.avgEntry,
-        avgExit: z.avgExit,
-        zoneLow: z.zoneLow,
-        zoneHigh: z.zoneHigh,
-        netPnl: z.netPnl,
-        hadStop: z.hadStop,
-        closeReasons: z.closeReasons,
-      }))
-    ).onConflictDoNothing();
-  }
+  // Rebuild the derived layer from everything we now hold. Shared with the undo
+  // path, so taking an import back produces exactly what never importing it would.
+  const { positions: totalPositions, zoneTrades: zoneCount } = await rebuildZoneTrades(account.id, userId);
 
   await db.update(importBatches)
     .set({ rowsInserted: inserted, rowsDuplicate: rows.length - inserted })
@@ -147,13 +162,22 @@ export async function POST(req: Request) {
   // would drop a file in and watch nothing happen.
   // `expire: 0` rather than a named profile: an import must be visible on the
   // very next page load, not eventually.
+  // Learnt once, so the next import can be checked against it rather than
+  // inferred from tickets. Only ever filled in, never overwritten: the stored
+  // number is what the mismatch check trusts.
+  if (fileLogin && !account.login) {
+    await db.update(tradingAccounts)
+      .set({ login: fileLogin })
+      .where(and(eq(tradingAccounts.id, account.id), eq(tradingAccounts.userId, userId)));
+  }
+
   revalidateTag(tradesTag(account.id), { expire: 0 });
 
   return NextResponse.json({
     ok: true,
     inserted,
     duplicates: rows.length - inserted,
-    totalPositions: all.length,
-    zoneTrades: zones.length,
+    totalPositions,
+    zoneTrades: zoneCount,
   });
 }

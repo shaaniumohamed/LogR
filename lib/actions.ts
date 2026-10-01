@@ -1,9 +1,11 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { revalidatePath, revalidateTag } from "next/cache";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { invites, tradeAnnotations, tradeScreenshots, tradingAccounts, tradingRules, users, weeklyNotes, zoneTrades } from "@/lib/db/schema";
+import { importBatches, invites, positions, tradeAnnotations, tradeScreenshots, tradingAccounts, tradingRules, users, weeklyNotes, zoneTrades } from "@/lib/db/schema";
+import { rebuildZoneTrades } from "@/lib/derive";
+import { tradesTag } from "@/lib/queries";
 import { viewUrl } from "@/lib/storage";
 import { requestContext } from "@/lib/session";
 import { isOwner, looksLikeEmail, normaliseEmail } from "@/lib/access";
@@ -426,4 +428,129 @@ export async function deleteAccount(_prev: { error?: string } | null, form: Form
   await db.update(users).set({ activeAccountId: fallback.id }).where(eq(users.id, ctx.userId));
   revalidatePath("/", "layout");
   return {};
+}
+
+
+/* ------------------------------------------------------------- imports ---
+ *
+ * Importing the wrong file is not an exotic failure. A trader with more than
+ * one account has more than one export sitting in the same downloads folder,
+ * named almost identically by the broker, and the mistake is invisible
+ * afterwards: the numbers are simply wrong, with nothing to say why.
+ *
+ * So every import is undoable. Each one records which fills it brought in, and
+ * taking it back deletes exactly those and rebuilds what the rest add up to —
+ * which leaves precisely the account that would have existed had the file never
+ * been dropped in.
+ */
+
+export interface ImportSummary {
+  id: string;
+  filename: string | null;
+  createdAt: Date;
+  /** Fills this import actually added, after the ones already held were skipped. */
+  added: number;
+  /** The span those fills cover, which is what a reader recognises a file by. */
+  from: Date | null;
+  to: Date | null;
+  net: number;
+}
+
+/** Every import on this account, newest first, with what it brought in. */
+export async function listImports(): Promise<ImportSummary[]> {
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return [];
+
+  return readOrDegrade(async () => {
+    const rows = await db
+      .select({
+        id: importBatches.id,
+        filename: importBatches.filename,
+        createdAt: importBatches.createdAt,
+        // Counted from the fills still attached rather than from the number the
+        // import recorded at the time: a later import can take rows back out,
+        // and a count that disagrees with what deleting this would remove is
+        // worse than no count at all.
+        added: sql<number>`count(${positions.id})`,
+        from: sql<Date | null>`min(${positions.openedAt})`,
+        to: sql<Date | null>`max(${positions.closedAt})`,
+        net: sql<number>`coalesce(sum(${positions.profit} + ${positions.commission} + ${positions.swap}), 0)`,
+      })
+      .from(importBatches)
+      .leftJoin(positions, eq(positions.importBatchId, importBatches.id))
+      .where(and(eq(importBatches.accountId, ctx.account.id), eq(importBatches.userId, ctx.userId)))
+      .groupBy(importBatches.id)
+      .orderBy(desc(importBatches.createdAt));
+
+    return rows.map((r) => ({
+      ...r,
+      added: Number(r.added),
+      net: Number(r.net),
+      from: r.from ? new Date(r.from) : null,
+      to: r.to ? new Date(r.to) : null,
+    }));
+  }, []);
+}
+
+/** Take one import back out, as though the file had never been dropped in. */
+export async function undoImport(_prev: { error?: string; ok?: string } | null, form: FormData) {
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return { error: "Not signed in" };
+
+  const id = String(form.get("batchId") ?? "");
+  // Scoped to this account as well as this import. The id arrives from the
+  // browser, so on its own it is a claim about which import to delete.
+  const [batch] = await db.select().from(importBatches)
+    .where(and(
+      eq(importBatches.id, id),
+      eq(importBatches.accountId, ctx.account.id),
+      eq(importBatches.userId, ctx.userId),
+    ))
+    .limit(1);
+  if (!batch) return { error: "That import is not on this account." };
+
+  const removed = await db.delete(positions)
+    .where(and(eq(positions.importBatchId, id), eq(positions.accountId, ctx.account.id)))
+    .returning({ id: positions.id });
+
+  await db.delete(importBatches)
+    .where(and(eq(importBatches.id, id), eq(importBatches.userId, ctx.userId)));
+
+  await rebuildZoneTrades(ctx.account.id, ctx.userId);
+  revalidateTag(tradesTag(ctx.account.id), { expire: 0 });
+  revalidatePath("/", "layout");
+
+  return { ok: `Removed ${removed.length.toLocaleString("en-US")} ${removed.length === 1 ? "trade" : "trades"}.` };
+}
+
+/**
+ * Everything, on this account only.
+ *
+ * Behind the account's own name typed out, for the same reason deleting an
+ * account is: a trader with several accounts is one tap from clearing the wrong
+ * one, and an "are you sure" answers a different question than "which one".
+ *
+ * What the trader WROTE is deliberately kept. Notes, mark-up and screenshots
+ * key to a hash of the fills, so they cost nothing while they sit there and
+ * reattach to their trades if the same history is imported again. Deleting them
+ * here would turn a recoverable mistake into an unrecoverable one.
+ */
+export async function clearHistory(_prev: { error?: string; ok?: string } | null, form: FormData) {
+  const ctx = await requestContext();
+  if (!ctx?.hasAccess) return { error: "Not signed in" };
+
+  const typed = String(form.get("confirm") ?? "").trim();
+  if (typed.toLowerCase() !== ctx.account.nickname.toLowerCase()) {
+    return { error: `Type “${ctx.account.nickname}” exactly to confirm.` };
+  }
+
+  const removed = await db.delete(positions)
+    .where(eq(positions.accountId, ctx.account.id))
+    .returning({ id: positions.id });
+  await db.delete(zoneTrades).where(eq(zoneTrades.accountId, ctx.account.id));
+  await db.delete(importBatches).where(eq(importBatches.accountId, ctx.account.id));
+
+  revalidateTag(tradesTag(ctx.account.id), { expire: 0 });
+  revalidatePath("/", "layout");
+  return { ok: `Cleared ${removed.length.toLocaleString("en-US")} trades. Your notes are kept.` };
 }

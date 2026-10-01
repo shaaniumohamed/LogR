@@ -3,12 +3,14 @@ import { requireContext } from "@/lib/session";
 import { loadTrades } from "@/lib/queries";
 import { loadCoverage, loadHtfCoverage, missingTradingDays } from "@/lib/candles";
 import ImportClient from "./import-client";
+import { ImportHistory } from "./import-history";
 import { CandleImport } from "./candle-import";
 import { CoverageList } from "./coverage-list";
 import { FetchMissing } from "./fetch-missing";
 import { FetchHigherTimeframes } from "./fetch-higher";
 import { NewsImport } from "./news-import";
 import { eventCoverage } from "@/lib/news";
+import { listImports } from "@/lib/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +45,8 @@ export default async function ImportPage({ searchParams }: {
   );
 }
 
-function TradesTab() {
+async function TradesTab() {
+  const [{ account }, imports] = await Promise.all([requireContext(), listImports()]);
   return (
     <div className="space-y-5">
       <div>
@@ -60,6 +63,7 @@ function TradesTab() {
         </p>
       </div>
       <ImportClient />
+      <ImportHistory imports={imports} accountName={account.nickname} />
     </div>
   );
 }
