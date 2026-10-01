@@ -88,6 +88,10 @@ function htfSeries(key, stepMs) {
     for (let s = 0; s < steps; s++) {
       const t = day.t + s * stepMs;
       if (t > TODAY) continue;
+      // The same hour the minute bars above leave out. An hourly series that
+      // trades through a break the minute series knows about is a market that
+      // never closes, and the app reads these holes as the closing bell.
+      if (stepMs === 3600_000 && new Date(t).getUTCHours() === 21) continue;
       const base = day.close * (1 + (s / steps - 0.5) * 0.004);
       const o = base * (1 + gauss() * 0.0006);
       const c = base * (1 + gauss() * 0.0006);
@@ -135,7 +139,9 @@ for (const [di, day] of days.entries()) {
   let lastLossAt = null;
 
   for (let n = 0; n < tradesToday; n++) {
-    const hour = 6 + Math.floor(rnd() * 16);
+    // Up to 20:00 and no further: the market is shut from 21:00, so a fill
+    // stamped inside the break would be a trade at a price that never printed.
+    const hour = 6 + Math.floor(rnd() * 15);
     const minute = Math.floor(rnd() * 60);
     const openedAt = new Date(day.t + hour * 3600_000 + minute * MIN);
     if (openedAt.getTime() > TODAY + 20 * 3600_000) continue;

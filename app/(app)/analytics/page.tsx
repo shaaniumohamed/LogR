@@ -8,6 +8,8 @@ import { distribution } from "@/lib/core/distribution";
 import { tiltProfile } from "@/lib/core/tilt";
 import { clusterLevels, type Mark } from "@/lib/core/levels";
 import { NEWS_WINDOW_MINUTES, newsWindow } from "@/lib/core/news";
+import { LEFT_BUCKETS, caughtByClose, closuresIn, leftBucket, sessionLeftAt, type EntryTiming } from "@/lib/core/market-hours";
+import { loadHtfBars } from "@/lib/candles";
 import { loadEvents } from "@/lib/news";
 import { loadExits, loadTrades, resolvePeriod } from "@/lib/queries";
 import { requireContext } from "@/lib/session";
@@ -43,6 +45,13 @@ function rowsFor(
       meta: `${count(g.stats.n)} · won ${pct(g.stats.winRate, 0)}`,
       href: linkFor?.(g.key),
     }));
+}
+
+/** The symbol to ask for history in. One account here trades one thing, but not every account will. */
+function mostTraded(trades: ZoneTrade[]): string {
+  const n = new Map<string, number>();
+  for (const t of trades) n.set(t.symbol, (n.get(t.symbol) ?? 0) + 1);
+  return [...n.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
 
 /** Patterns and Trades share one period, so a drill-down lands on the same slice. */
@@ -156,12 +165,33 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
    * stored, shared across every account here, to answer a question about one
    * month would be the wrong shape entirely.
    */
-  const events = trades.length
-    ? await loadEvents(
-        new Date(trades[trades.length - 1].openedAt.getTime() - 3600_000),
-        new Date(trades[0].closedAt.getTime() + 3600_000),
-      )
-    : [];
+  /*
+   * Economic releases, and the hourly series, over the span the trades occupy.
+   *
+   * Both are loaded after the trades rather than beside them because the window
+   * to ask for depends on when the trades actually are — reading every release
+   * ever stored, shared across every account here, to answer a question about
+   * one month would be the wrong shape entirely. They do not depend on each
+   * other, so they go together.
+   *
+   * The hourly bars reach two days past the last trade on purpose: the question
+   * asked of them is when the market next SHUT, and a trade taken on the final
+   * afternoon has its answer outside the period it belongs to.
+   */
+  const [events, hourly] = trades.length
+    ? await Promise.all([
+        loadEvents(
+          new Date(trades[trades.length - 1].openedAt.getTime() - 3600_000),
+          new Date(trades[0].closedAt.getTime() + 3600_000),
+        ),
+        loadHtfBars(
+          mostTraded(trades),
+          "1h",
+          new Date(trades[trades.length - 1].openedAt.getTime() - 2 * 86_400_000),
+          new Date(trades[0].closedAt.getTime() + 2 * 86_400_000),
+        ),
+      ])
+    : [[], []];
 
   if (isEmpty) {
     return <Empty title="Nothing to analyse yet" body="Import your broker history and the patterns appear here automatically — nothing to fill in." />;
@@ -340,6 +370,63 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
   const newsStats = computeStats(newsTrades);
   const calmStats = computeStats(trades.filter((t) => !inNews.has(t.id)));
   const cfNews = newsTrades.length ? counterfactual(trades, (t) => inNews.has(t.id)) : null;
+
+  /*
+   * How much of the session was left when each trade was opened.
+   *
+   * This is here because of something the trader said about their own losses:
+   * that some of them were trades entered near the close. That is a claim about
+   * their behaviour, and the whole point of this page is to settle such claims
+   * with their own fills rather than leave them as a feeling.
+   *
+   * Only the trades the hourly series can answer for are counted, and the card
+   * says how many that was. A trade whose next closure cannot be located is
+   * left out entirely rather than quietly dropped into the roomiest bucket,
+   * which would be the one way to make a real effect disappear.
+   */
+  const closures = closuresIn(hourly);
+  const timingOf = new Map<string, EntryTiming>();
+  for (const t of trades) {
+    const timing = sessionLeftAt(Math.floor(t.openedAt.getTime() / 1000), closures);
+    if (timing) timingOf.set(t.id, timing);
+  }
+  const judgedForClose = trades.filter((t) => timingOf.has(t.id));
+  const closeSegments = segmentBy(judgedForClose, (t) => leftBucket(timingOf.get(t.id)!.minutesLeft), MIN);
+  /*
+   * Two deliberate departures from every other chart on this page.
+   *
+   * Ordered by time left rather than by result, because the question is whether
+   * there is a slope as the close approaches and sorting by size would hide it.
+   *
+   * And drawn PER TRADE rather than as a total. Everywhere else the buckets are
+   * roughly comparable in size, so a total is fair; here they cannot be. Almost
+   * every trade has hours of room and only a handful are taken against the bell,
+   * so a chart of totals would put the longest bar on the biggest bucket and
+   * read as "the more trades, the worse" — which is arithmetic, not a finding.
+   * What is being asked is whether a trade taken late is worse than one taken
+   * early, and that is an average.
+   */
+  const closeRows: BarRow[] = LEFT_BUCKETS
+    .map((b) => closeSegments.find((g) => g.key === b.label))
+    .filter((g): g is NonNullable<typeof g> => !!g)
+    .map((g) => ({
+      label: g.key,
+      value: g.stats.expectancy,
+      meta: `${count(g.stats.n)} · won ${pct(g.stats.winRate, 0)}`,
+    }));
+
+  const rushed = judgedForClose.filter((t) => timingOf.get(t.id)!.minutesLeft < 15);
+  const rushedStats = computeStats(rushed);
+  const roomy = judgedForClose.filter((t) => timingOf.get(t.id)!.minutesLeft >= 15);
+  const roomyStats = computeStats(roomy);
+  // The mechanism, not the clock: a late entry only costs anything if the market
+  // shut before the trade was out of it.
+  const stranded = rushed.filter((t) =>
+    caughtByClose(Math.floor(t.closedAt.getTime() / 1000), timingOf.get(t.id)!));
+  const strandedWeekend = stranded.filter((t) => timingOf.get(t.id)!.closure.weekend);
+  const cfRushed = rushed.length >= MIN
+    ? counterfactual(trades, (t) => (timingOf.get(t.id)?.minutesLeft ?? Infinity) < 15)
+    : null;
 
   const overWeekend = trades.filter((t) => heldOverWeekend(t.openedAt, t.closedAt));
   const weekendStats = computeStats(overWeekend);
@@ -803,6 +890,53 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
         rows={ladderRows}
         note="If single entries do better, your extra layers are adding size to trades that were already going wrong."
       />
+      {closeRows.length >= 2 && (
+        <Card>
+          <Eyebrow>How close to the bell you opened</Eyebrow>
+          <Verdict>
+            {rushed.length >= MIN && rushedStats.expectancy < roomyStats.expectancy
+              ? `${count(rushed.length)} were opened with under 15 minutes of trading left. They came to ${money0(rushedStats.net)} — ${money0(rushedStats.expectancy)} a trade, against ${money0(roomyStats.expectancy)} for everything else.`
+              : `How much of the session was left each time you opened, measured against the next time the market actually shut.`}
+          </Verdict>
+          <BarChart rows={closeRows} format={(v) => money(v)} />
+          <Note>
+            Each bar is the average trade, not the total — these buckets are nothing like the same
+            size.{" "}
+            {stranded.length > 0 ? (
+              <>
+                {stranded.length} of the {rushed.length} entries with under 15 minutes left were
+                still open when the market shut
+                {strandedWeekend.length > 0 ? <>, {strandedWeekend.length} of those into a weekend</> : null}
+                . That is the mechanism rather than the clock: entering late only costs you
+                anything when the close arrives before your exit does.{" "}
+              </>
+            ) : null}
+            {cfRushed && cfRushed.improvement > 0 ? (
+              <>
+                Not taking them would have changed this period from {money0(cfRushed.before)} to{" "}
+                <b>{money0(cfRushed.after)}</b>.
+              </>
+            ) : null}
+          </Note>
+          <Info title="How the app knows when the market shut">
+            Not from a timetable. Your broker keeps its own clock, gold&rsquo;s nightly break moves
+            an hour twice a year with daylight saving, and the next broker does it differently —
+            a table of session times would be wrong somewhere, quietly, and would turn this
+            finding into fiction.
+            <br /><br />
+            A shut market prints no candles, so the closes are read out of the hourly history
+            itself: a hole in the series is a closure. A one-off missing candle looks the same, so
+            a short hole is only believed when the same hour goes dark on several different days,
+            which is what a real nightly break does and a glitch does not. A weekend needs no such
+            proof — nothing else leaves gold dark for half a day.
+            <br /><br />
+            {count(judgedForClose.length)} of your {count(trades.length)} here could be judged this
+            way. The rest sit where the hourly history does not reach, and are left out rather than
+            guessed at.
+          </Info>
+        </Card>
+      )}
+
       {overWeekend.length > 0 && (
         <Card>
           <Eyebrow>Held through a weekend</Eyebrow>

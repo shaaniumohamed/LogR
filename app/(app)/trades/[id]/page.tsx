@@ -12,6 +12,7 @@ import { requireContext } from "@/lib/session";
 import { localDayKey } from "@/lib/core/metrics";
 import { dayLabel } from "@/lib/core/calendar";
 import { heldOverWeekend } from "@/lib/core/analysis";
+import { caughtByClose, closuresIn, sessionLeftAt } from "@/lib/core/market-hours";
 import { ChartPanel } from "./chart-panel";
 import { GetCandles } from "./get-candles";
 import { Card, Eyebrow, Note, Stat, StatGrid, Verdict, money, pct } from "@/components/ui";
@@ -71,6 +72,21 @@ export default async function TradeDetail({ params, searchParams }: {
     ? closureGapIn(bars, Math.floor(t.openedAt.getTime() / 1000), Math.floor(t.closedAt.getTime() / 1000))
     : null;
   const againstYou = gap ? (t.direction === "long" ? -gap.points : gap.points) : 0;
+
+  /*
+   * How much of the session was left when this was opened.
+   *
+   * Read from the hourly series the chart has already loaded, so it costs no
+   * query of its own — the window around a trade necessarily contains the close
+   * that followed it. Shown only when the answer is short enough to have
+   * mattered; on a trade opened at ten in the morning it is noise.
+   */
+  const openSec = Math.floor(t.openedAt.getTime() / 1000);
+  const entryTiming = sessionLeftAt(openSec, closuresIn(htf["1h"] ?? []));
+  const nearClose = entryTiming && entryTiming.minutesLeft < 60 ? entryTiming : null;
+  const strandedByClose = nearClose
+    ? caughtByClose(Math.floor(t.closedAt.getTime() / 1000), nearClose)
+    : false;
 
   const fills = (withLegs?.legs ?? []).flatMap((l) => [
     { kind: "in" as const, time: Math.floor(l.openedAt.getTime() / 1000), price: l.openPrice, lots: l.lots, profit: l.profit },
@@ -164,6 +180,35 @@ export default async function TradeDetail({ params, searchParams }: {
           was dead.
         </Info>
       </Card>
+
+      {nearClose && !overWeekend && (
+        <Card className="!border-[color:var(--warn)]">
+          <Eyebrow>Opened near the close</Eyebrow>
+          <Verdict>
+            {`You opened this with ${Math.round(nearClose.minutesLeft)} minutes of trading left, and the market then shut for ${
+              nearClose.closure.weekend
+                ? `the weekend — ${Math.round(nearClose.closure.hours)} hours`
+                : `${Math.round(nearClose.closure.hours)} ${nearClose.closure.hours === 1 ? "hour" : "hours"}`
+            }.`}
+          </Verdict>
+          <Note>
+            {strandedByClose
+              ? "It was still open when that happened, so the close managed the trade rather than you did."
+              : "You were out before it happened, so the close cost you nothing here — only the room you had to work in."}
+          </Note>
+          <Info title="Why this is worth marking">
+            A position taken minutes before the market stops is not the trade you thought you
+            were taking. The time for it to be right is gone, and with no fixed stop the usual
+            exit — price telling you the idea is dead — cannot arrive either. What is left is a
+            coin toss across the gap.
+            <br /><br />
+            The closing time is not read from a timetable. Your broker keeps its own clock and
+            gold&rsquo;s nightly break shifts with daylight saving, so it is found in the hourly
+            candles instead: a shut market prints none, and the hole is the closure. Patterns
+            shows whether these cost you anything across the whole period.
+          </Info>
+        </Card>
+      )}
 
       {overWeekend && (
         <Card className="!border-[color:var(--warn)]">
