@@ -7,16 +7,30 @@
  * that calls a query function and passes it the right account id proves only
  * that the function does what its argument says.
  *
- *   node scripts/seed-two-users.mjs "$DATABASE_URL"
  *   npm run build && npx next start -p 3123
- *   node scripts/isolation-check.mjs
+ *   TEST_DATABASE_URL="$DATABASE_URL" node scripts/isolation-check.mjs
  *
  * Alice is an owner, Bob is someone she invited, Mallory is signed in with a
  * token for a user that does not exist. Every one of Alice's private strings is
  * seeded with a distinctive marker, so a leak is found by looking for the marker
  * rather than by reasoning about which field should have been filtered.
  */
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+
+/*
+ * Seed first, when told where.
+ *
+ * Several checks below assert Bob still has exactly the data he was seeded
+ * with — his weekly focus, his notes. The server-action tests in
+ * tests/isolation.test.ts change that data on purpose (Bob editing his own
+ * note is one of the things they prove he CAN do), so running this script
+ * after them failed a check that had nothing wrong with it. Those tests seed
+ * their own fixture for the same reason; this now does too.
+ */
+if (process.env.TEST_DATABASE_URL) {
+  execFileSync(process.execPath, ["scripts/seed-two-users.mjs", process.env.TEST_DATABASE_URL], { stdio: "ignore" });
+}
 
 const BASE = process.env.BASE ?? "http://127.0.0.1:3123";
 const T = JSON.parse(readFileSync("/var/tmp/tokens.json", "utf8"));
@@ -199,6 +213,29 @@ console.log("\nACCOUNTS ARE THE TRADER'S OWN");
   check("Bob sees his own account", bobSettings.includes("Bob&#x27;s main") || bobSettings.includes("Bob's main"));
   check("Bob does not see Alice's account", !bobSettings.includes("Alice&#x27;s main") && !bobSettings.includes("Alice's main"));
   check("Bob is not offered a switcher for one account", !bobSettings.includes("a-alice"));
+}
+
+console.log("\nEVERY SCREEN BOB CAN OPEN SHOWS ONLY BOB");
+{
+  /*
+   * The V2 screens read more of the journal at once than anything before them:
+   * the leaks ranking pulls every annotation, setup name and news window on the
+   * account, and the sidebar and More page print the signed-in address. Each is
+   * a new place a cross-account read could surface, so each is searched for
+   * every one of Alice's markers — her notes, her weekly focus, her setup name,
+   * her address and her account id — rather than trusted to be scoped.
+   */
+  const ALICE = ["SECRET-NOTE-OF-ALICE", "SECRET-FOCUS-OF-ALICE", "Alice setup", "alice@example.com", "a-alice"];
+  for (const path of [
+    "/dashboard", "/trades", "/review", "/calendar", "/more",
+    "/analytics", "/analytics?view=mind", "/analytics?view=timing", "/analytics?view=setups", "/analytics?view=risk",
+  ]) {
+    const body = await text("bob", path);
+    const leaked = ALICE.filter((m) => body.includes(m));
+    check(`${path} holds nothing of Alice's`, leaked.length === 0, leaked.join(", "));
+  }
+  const more = await text("bob", "/more");
+  check("Bob's More page names Bob", more.includes("bob@example.com"));
 }
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`);

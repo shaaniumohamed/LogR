@@ -39,7 +39,10 @@ const DEVICES = [
 ];
 
 const PAGES = process.argv.slice(2).length ? process.argv.slice(2) : [
-  "/dashboard", "/calendar", "/trades", "/analytics", "/playbook", "/review", "/settings", "/import",
+  "/dashboard", "/calendar", "/trades", "/analytics", "/analytics?view=mind", "/analytics?view=timing",
+  "/analytics?view=setups", "/analytics?view=risk", "/playbook", "/review", "/settings", "/import", "/more",
+  // A trade, week and day that exist in the deterministic scripts/seed-dev.mjs data.
+  "/trades/0666be7bc3e3f835", "/week/2026-09-14", "/day/2026-09-17",
 ];
 
 const browser = await chromium.launch({
