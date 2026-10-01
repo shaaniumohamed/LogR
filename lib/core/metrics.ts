@@ -1,3 +1,4 @@
+import { dayKeyFormatter, hourFormatter } from "./fmt";
 import type { Position, Stats, ZoneTrade } from "./types";
 import { round2 } from "./parse-exness";
 
@@ -156,10 +157,9 @@ export function pointValuePerLot(trades: ZoneTrade[], minTrades = 20): number | 
 
 /** Local-time hour. The export is UTC; a trader acts in their own timezone. */
 export function hourIn(date: Date, timeZone: string): number {
-  const s = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone }).format(date);
-  return Number(s);
+  return Number(hourFormatter(timeZone).format(date));
 }
 
 export function localDayKey(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone }).format(date);
+  return dayKeyFormatter(timeZone).format(date);
 }

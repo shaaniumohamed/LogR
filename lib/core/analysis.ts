@@ -1,3 +1,4 @@
+import { weekdayFormatter } from "./fmt";
 import type { ZoneTrade } from "./types";
 import { computeStats, hourIn, localDayKey } from "./metrics";
 import { round2 } from "./parse-exness";
@@ -130,7 +131,7 @@ export function sessionOf(at: Date): Session {
 export const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 export function weekdayIn(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-GB", { weekday: "long", timeZone }).format(date);
+  return weekdayFormatter(timeZone).format(date);
 }
 
 /** ISO week key (YYYY-Www) in the trader's own zone, Monday-first. */
