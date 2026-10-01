@@ -61,6 +61,20 @@ for (const d of DEVICES) {
     name: "authjs.session-token", value: TOKEN,
     domain: "127.0.0.1", path: "/", httpOnly: true, sameSite: "Lax",
   }]);
+  /*
+   * A chosen theme is not the same thing as a colour scheme.
+   *
+   * The scheme above is what the phone reports; a theme is an attribute on the
+   * document, stored on the device. Midnight and Paper are reachable through
+   * neither of the two schemes, so without this they would be the only screens
+   * in the app nothing ever looked at.
+   */
+  if (process.env.THEME) {
+    await ctx.addInitScript(
+      (t) => { try { localStorage.setItem("logr.theme", t); } catch {} },
+      process.env.THEME,
+    );
+  }
   const page = await ctx.newPage();
 
   for (const path of PAGES) {

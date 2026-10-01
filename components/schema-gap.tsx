@@ -19,7 +19,28 @@ function Missing({ missing }: { missing: string[] }) {
   );
 }
 
-function Fix() {
+/**
+ * Who is reading this matters.
+ *
+ * The instructions below are for whoever runs the deployment. To a friend who
+ * was invited to use it, they are a list of things they have no access to do,
+ * attached to a page telling them their journal is broken — which reads as
+ * "this is your fault and here is a command line". They get the part that is
+ * true for them: nothing is lost, and someone else has to do something.
+ */
+function Fix({ owner }: { owner: boolean }) {
+  if (!owner) {
+    return (
+      <p className="mt-3 text-[13px] leading-relaxed" style={{ color: "var(--ink2)" }}>
+        Whoever runs this app needs to finish an update. Nothing of yours is affected — your
+        trades and notes are all still here, and everything works again as soon as that is done.
+      </p>
+    );
+  }
+  return <OwnerFix />;
+}
+
+function OwnerFix() {
   return (
     <>
       <p className="mt-4 text-[13px] font-semibold">From a phone</p>
@@ -42,7 +63,7 @@ function Fix() {
 }
 
 /** The journal still works. Say what is switched off and carry on. */
-export function SchemaGapBanner({ missing }: { missing: string[] }) {
+export function SchemaGapBanner({ missing, owner }: { missing: string[]; owner: boolean }) {
   return (
     <div className="card mb-4 p-4" style={{ borderColor: "var(--warn)" }}>
       <div className="eyebrow" style={{ color: "var(--warn)" }}>Database is behind the app</div>
@@ -51,19 +72,19 @@ export function SchemaGapBanner({ missing }: { missing: string[] }) {
         missing — chart mark-up, price history, screenshots, rules — are switched off until
         the database catches up.
       </p>
-      <Missing missing={missing} />
+      {owner && <Missing missing={missing} />}
       <details className="mt-3">
         <summary className="tap cursor-pointer text-[12px] font-semibold" style={{ color: "var(--ink2)" }}>
           How to fix it
         </summary>
-        <Fix />
+        <Fix owner={owner} />
       </details>
     </div>
   );
 }
 
 /** Nothing works. This is the whole page. */
-export function SchemaGapScreen({ missing }: { missing: string[] }) {
+export function SchemaGapScreen({ missing, owner }: { missing: string[]; owner: boolean }) {
   return (
     <div className="mx-auto max-w-lg px-4 py-16">
       <div className="card p-6">
@@ -75,8 +96,8 @@ export function SchemaGapScreen({ missing }: { missing: string[] }) {
           note or screenshot is deleted by this, and they all come back the moment the tables
           below exist.
         </p>
-        <Missing missing={missing} />
-        <Fix />
+        {owner && <Missing missing={missing} />}
+        <Fix owner={owner} />
       </div>
     </div>
   );

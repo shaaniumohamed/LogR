@@ -71,23 +71,30 @@ export default function ImportClient() {
         <div className="card p-5">
           <div className="eyebrow">Check this against your statement</div>
           <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Fact label="Rows parsed" value={`${summary.parsed} / ${summary.rows}`} />
-            <Fact label="Net P&L" value={money(summary.net)} tone={summary.net >= 0 ? "pos" : "neg"} />
-            <Fact label="Zone trades" value={`${zones.length}`} />
-            <Fact label="Date range" value={
+            <Fact label="Rows read" value={`${summary.parsed} / ${summary.rows}`} />
+            <Fact label="Profit / loss" value={money(summary.net)} tone={summary.net >= 0 ? "pos" : "neg"} />
+            <Fact label="Trades" value={`${zones.length}`} />
+            <Fact label="Covering" value={
               summary.from && summary.to
                 ? `${summary.from.toISOString().slice(0, 10)} → ${summary.to.toISOString().slice(0, 10)}`
                 : "—"} />
           </div>
           <p className="mt-4 text-xs leading-relaxed" style={{ color: "var(--ink2)" }}>
-            If that net does not match your broker to the cent, do not import — tell me
-            and the parser gets fixed. {summary.withStop} of {summary.parsed} trades had a
-            platform stop, {summary.withTarget} had a target.
+            {/* The one check worth making, in the one sentence it takes. Why the
+                trade count differs from the row count is explained below rather
+                than here, where it would come between the reader and the check. */}
+            If that figure does not match your broker, stop here rather than importing.
           </p>
         </div>
 
+        <div className="card p-5 text-[12.5px] leading-relaxed" style={{ color: "var(--ink2)" }}>
+          <b style={{ color: "var(--ink)" }}>Why there are fewer trades than rows.</b> Your broker
+          lists every fill separately, so laddering into one idea and taking partials out of it can
+          be a dozen rows. LogR puts those back together into the one trade you actually took.
+        </div>
+
         <div className="card p-5">
-          <div className="eyebrow">What the data already says</div>
+          <div className="eyebrow">What this already tells you</div>
           <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
             <Fact label="Win rate" value={`${(s.winRate * 100).toFixed(1)}%`} />
             <Fact label="Break-even needed" value={s.breakEvenWinRate ? `${(s.breakEvenWinRate * 100).toFixed(1)}%` : "—"} />
@@ -99,7 +106,8 @@ export default function ImportClient() {
 
         {skipped.length > 0 && (
           <div className="card p-4 text-xs" style={{ color: "var(--ink2)" }}>
-            <b>{skipped.length} rows skipped</b> — {[...new Set(skipped.map((x) => x.reason))].join(", ")}
+            <b>{skipped.length} rows were not trades</b> and were left out — {[...new Set(skipped.map((x) => x.reason))].join(", ")}.
+            Deposits, withdrawals and cancelled orders live in the same file.
           </div>
         )}
 

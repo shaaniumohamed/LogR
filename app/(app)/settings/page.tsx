@@ -7,6 +7,7 @@ import { requireContext } from "@/lib/session";
 import { OWNER_EMAILS, gateIsOpen, listInvites } from "@/lib/access";
 import { countTradesPerAccount } from "@/lib/queries";
 import { Accounts } from "./accounts";
+import { ThemePicker } from "@/components/theme-picker";
 import { People } from "./people";
 import { checkHealth, regionName, verdictFor } from "@/lib/health";
 import { COMMON_ZONES, isValidZone, offsetLabel } from "@/lib/timezones";
@@ -128,6 +129,12 @@ export default async function Settings() {
       </Card>
 
       <Card>
+        <Eyebrow>Appearance</Eyebrow>
+        <Verdict>Pick what is easiest on your eyes. It changes as you tap, and stays on this device.</Verdict>
+        <ThemePicker />
+      </Card>
+
+      <Card>
         <Eyebrow>Put it on your home screen</Eyebrow>
         <Verdict>
           Added to the home screen this opens without a browser bar — a third of the screen
@@ -159,22 +166,21 @@ export default async function Settings() {
           <a href="/api/export?format=csv" download
              className="rounded-lg px-3.5 py-2.5 text-[13px] font-semibold"
              style={{ background: "var(--ink)", color: "var(--plane)" }}>
-            Spreadsheet (CSV)
+            Spreadsheet
           </a>
           <a href="/api/export?format=json" download
              className="rounded-lg px-3.5 py-2.5 text-[13px] font-semibold"
              style={{ border: "1px solid var(--line)", color: "var(--ink2)" }}>
-            Everything (JSON)
+            Full backup
           </a>
         </div>
         <Info title="Which one, and what is in it">
           The <b>spreadsheet</b> is one row per trade with your notes flattened alongside —
-          setup, feeling, confluences, mistakes, rules broken, the note itself. That is the
-          shape a spreadsheet, a coach or a statistics package wants.
+          setup, feeling, confluences, mistakes, rules broken, the note itself. That is the one to
+          open in Excel or Google Sheets, or to send to someone.
           <br /><br />
-          The <b>JSON</b> is the whole thing: every individual fill as your broker reported it,
-          every annotation, your rules and your weekly reviews. That is the shape a restore
-          would need.
+          The <b>full backup</b> is the whole thing: every individual fill as your broker reported it,
+          every annotation, your rules and your weekly reviews. It is the file you would need to put everything back.
           <br /><br />
           Neither contains price history. It is public market data shared by every account
           here, it is by far the largest thing in the database, and none of it is yours.
@@ -186,40 +192,45 @@ export default async function Settings() {
         </Info>
       </Card>
 
-      <Card>
-        <Eyebrow>Speed</Eyebrow>
-        <Verdict>
-          The database is <b className={speed.tone === "pos" ? "pos" : speed.tone === "neg" ? "neg" : undefined}>
-            {speed.label}
-          </b>
-          {health.dbMs !== null ? <> — <b className="num">{health.dbMs} ms</b> for a question with no work in it.</> : "."}
-        </Verdict>
-        <Note>{speed.advice}</Note>
-        <div className="mt-3 grid grid-cols-2 gap-3 text-[13px]">
-          <div>
-            <div className="text-[11px]" style={{ color: "var(--ink3)" }}>App runs in</div>
-            <div className="font-semibold">{regionName(health.region)}</div>
+      {/* Infrastructure, not journaling. Shown to whoever runs the deployment,
+          because the fix is a setting only they have — and to everyone else it
+          is a box of numbers about somebody else's servers. */}
+      {ctx.isOwner && (
+        <Card>
+          <Eyebrow>Speed</Eyebrow>
+          <Verdict>
+            The database is <b className={speed.tone === "pos" ? "pos" : speed.tone === "neg" ? "neg" : undefined}>
+              {speed.label}
+            </b>
+            {health.dbMs !== null ? <> — <b className="num">{health.dbMs} ms</b> for a question with no work in it.</> : "."}
+          </Verdict>
+          <Note>{speed.advice}</Note>
+          <div className="mt-3 grid grid-cols-2 gap-3 text-[13px]">
+            <div>
+              <div className="text-[11px]" style={{ color: "var(--ink3)" }}>App runs in</div>
+              <div className="font-semibold">{regionName(health.region)}</div>
+            </div>
+            <div>
+              <div className="text-[11px]" style={{ color: "var(--ink3)" }}>Round trip</div>
+              <div className="num font-semibold">{health.dbMs === null ? "—" : `${health.dbMs} ms`}</div>
+            </div>
           </div>
-          <div>
-            <div className="text-[11px]" style={{ color: "var(--ink3)" }}>Round trip</div>
-            <div className="num font-semibold">{health.dbMs === null ? "—" : `${health.dbMs} ms`}</div>
+          <div className="mt-4 rounded-lg p-3 text-[12.5px] leading-relaxed"
+               style={{ background: "var(--s3)", color: "var(--ink2)" }}>
+            <b>Why this number decides how the app feels.</b> Every screen here is built fresh
+            when you open it, because the figures on it are yours and change with every import.
+            Building one takes a handful of questions to the database, and each question costs
+            this much before any work is done. Two or three milliseconds is invisible; two or
+            three hundred is most of a second of staring at nothing.
+            <br /><br />
+            <b>If this number is large.</b> It means the app and the database are in different
+            parts of the world, and the fix is to put them in the same one. Check which region
+            your Neon project is in, then set the app&rsquo;s region to match it in{" "}
+            <b>Vercel → Settings → Functions</b>. It is a one-line change and it is worth more
+            than any amount of tuning in the code.
           </div>
-        </div>
-        <div className="mt-4 rounded-lg p-3 text-[12.5px] leading-relaxed"
-             style={{ background: "var(--s3)", color: "var(--ink2)" }}>
-          <b>Why this number decides how the app feels.</b> Every screen here is built fresh
-          when you open it, because the figures on it are yours and change with every import.
-          Building one takes a handful of questions to the database, and each question costs
-          this much before any work is done. Two or three milliseconds is invisible; two or
-          three hundred is most of a second of staring at nothing.
-          <br /><br />
-          <b>If this number is large.</b> It means the app and the database are in different
-          parts of the world, and the fix is to put them in the same one. Check which region
-          your Neon project is in, then set the app&rsquo;s region to match it in{" "}
-          <b>Vercel → Settings → Functions</b>. It is a one-line change and it is worth more
-          than any amount of tuning in the code.
-        </div>
-      </Card>
+        </Card>
+      )}
 
       <Card>
         <Eyebrow>Your time zone</Eyebrow>

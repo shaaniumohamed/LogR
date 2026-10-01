@@ -6,6 +6,8 @@ import { ZoneSync } from "@/components/zone-sync";
 import { TabBar, TopNav } from "@/components/tab-bar";
 import { AccountSwitcher } from "@/components/account-switcher";
 import { isSchemaBehind, schemaGaps } from "@/lib/db/schema-check";
+import { auth } from "@/auth";
+import { isOwner } from "@/lib/access";
 import { SchemaGapBanner, SchemaGapScreen } from "@/components/schema-gap";
 
 /**
@@ -33,6 +35,18 @@ const DESKTOP_EXTRA = [
  * Only a schema gap is turned into a value: anything else is still a fault and
  * still belongs on the error path, where it can be seen and fixed.
  */
+/**
+ * Owner, without asking the database.
+ *
+ * Needed on the path where the database is exactly what could not be read, so
+ * it comes from the session and the environment list, both of which are still
+ * available when every query is failing.
+ */
+async function viewerIsOwner(): Promise<boolean> {
+  const session = await auth();
+  return isOwner(session?.user?.email);
+}
+
 async function tryContext(): Promise<{ ok: true; ctx: Awaited<ReturnType<typeof requestContext>> } | { ok: false }> {
   try {
     return { ok: true, ctx: await requestContext() };
@@ -59,7 +73,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
    * the app being down. The gap is knowable and the fix is two lines, so it is
    * worth a screen that says both.
    */
-  if (!attempt.ok) return <SchemaGapScreen missing={gaps ?? []} />;
+  if (!attempt.ok) return <SchemaGapScreen missing={gaps ?? []} owner={await viewerIsOwner()} />;
   const ctx = attempt.ctx;
   if (!ctx) redirect("/signin");
   // Access removed while they were still signed in. Nothing of theirs is
@@ -87,7 +101,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
       <main className="flex-1 py-5 pb-28 sm:pb-8">
         <ZoneSync saved={savedZone} />
-        {!!gaps?.length && <SchemaGapBanner missing={gaps} />}
+        {!!gaps?.length && <SchemaGapBanner missing={gaps} owner={ctx.isOwner} />}
         {children}
       </main>
 

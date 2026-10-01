@@ -4,12 +4,15 @@ import { spreadRange } from "@/lib/core/instrument";
 import { byHourLocal, byLocalDay, maxDrawdown, monthKey, weekKey } from "@/lib/core/analysis";
 import { localDayKey } from "@/lib/core/metrics";
 import { loadTrades, recentSlice, resolvePeriod } from "@/lib/queries";
+import { requireContext } from "@/lib/session";
+import { setupState } from "@/lib/onboarding";
+import { GettingStarted } from "@/components/getting-started";
 import { PeriodTabs } from "@/components/period-tabs";
 import { MonthCalendar, PeriodTrend } from "@/components/month-calendar";
 import { monthLabel } from "@/lib/core/calendar";
 import { BarChart, CurveChart, VersusBar } from "@/components/charts";
 import { Info } from "@/components/info";
-import { Card, Empty, Estimated, Eyebrow, Note, Stat, StatGrid, Verdict, count, money, money0, pct } from "@/components/ui";
+import { Card, Estimated, Eyebrow, Note, Stat, StatGrid, Verdict, count, money, money0, pct } from "@/components/ui";
 import { zoneName } from "@/lib/timezones";
 import type { ZoneTrade } from "@/lib/core/types";
 
@@ -49,27 +52,25 @@ export default async function Dashboard({ searchParams }: {
 }) {
   const sp = await searchParams;
   const period = resolvePeriod(sp.period);
-  const { all, trades, timeZone, isEmpty } = await loadTrades(period);
+  // Started together: the setup check is one statement and does not depend on
+  // the trades, so it costs no extra waiting even though it is a second read.
+  const ctx = await requireContext();
+  const [{ all, trades, timeZone, isEmpty }, setup] = await Promise.all([
+    loadTrades(period),
+    setupState(ctx.account.id),
+  ]);
 
-  if (isEmpty) {
-    return (
-      <Empty
-        title="Nothing imported yet"
-        body="Drop in a broker CSV and this fills itself in."
-        action={
-          <Link href="/import" className="inline-block rounded-lg px-4 py-2.5 text-sm font-semibold"
-                style={{ background: "var(--ink)", color: "var(--plane)" }}>
-            Import trade history
-          </Link>
-        }
-      />
-    );
-  }
+  // Nothing imported: the only thing on this screen is how to begin.
+  if (isEmpty) return <GettingStarted setup={setup} firstTradeHref={null} />;
 
   const fmtDay = (d: string) =>
     new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
   const s = computeStats(trades);
+  // Shown above everything until the last step is done, then gone for good.
+  const gettingStarted = setup.done
+    ? null
+    : <GettingStarted setup={setup} firstTradeHref={all[0] ? `/trades/${all[0].id}` : null} />;
 
   /*
    * The spread estimate needs two things the app does not otherwise know: what a
@@ -122,6 +123,7 @@ export default async function Dashboard({ searchParams }: {
 
   return (
     <div className="space-y-4">
+      {gettingStarted}
       <div className="flex items-center justify-between gap-3">
         <PeriodTabs base="/dashboard" active={period} />
         <span className="text-[11px]" style={{ color: "var(--ink3)" }}>

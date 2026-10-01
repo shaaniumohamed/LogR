@@ -9,7 +9,21 @@
   --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/*
+ * Themes.
+ *
+ * `:root` holds the light tokens, and each theme restates the ones it changes
+ * under its own attribute. The attribute is set on <html> before the page
+ * paints, so there is no flash of the wrong theme on the way in.
+ *
+ * The system rule is scoped to `:not([data-theme])` rather than
+ * `:not([data-theme="light"])`. With the looser version, picking any light
+ * theme other than "light" — Paper, say — would still pull the dark tokens in
+ * on a phone set to dark mode, and the page would come out as a half-mixed
+ * third thing that belongs to neither.
+ */
 :root {
+  color-scheme: light;
   --plane: #f3f3f1;
   --s1: #fcfcfb;
   --s2: #ffffff;
@@ -19,25 +33,76 @@
   --ink2: #52514e;
   --ink3: #898781;
   --grid: #e1e0d9;
-  --profit: #1baf7a;
-  --loss: #e34948;
-  --c1: #2a78d6;
-  --c2: #eda100;
-  --warn: #fab219;
+  /*
+   * Darker than they look like they should be, and deliberately.
+   *
+   * These are TEXT colours before they are anything else — a P&L figure, a
+   * warning label — and the vivid versions sat at 2.7:1 and 1.8:1 against a
+   * white card, which is below what a person can comfortably read and well
+   * below the accessible minimum. Nobody notices that on a desk monitor
+   * indoors; everybody notices it on a phone in daylight, which is where this
+   * journal is actually read.
+   */
+  --profit: #0f7c55;
+  --loss: #c0302f;
+  --c1: #2566c4;
+  --c2: #a37206;
+  --warn: #8a5c00;
 }
+
+/* Follow the phone, unless a theme has been chosen. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
     --plane: #0a0b0d; --s1: #12141a; --s2: #191c23; --s3: #1f232b;
     --line: rgb(255 255 255 / 0.08);
     --ink: #f4f5f7; --ink2: #9ba1ac; --ink3: #6b7280; --grid: #22262e;
     --profit: #199e70; --loss: #e66767; --c1: #3987e5; --c2: #c98500;
+    --warn: #fab219;
   }
 }
+
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --plane: #0a0b0d; --s1: #12141a; --s2: #191c23; --s3: #1f232b;
   --line: rgb(255 255 255 / 0.08);
   --ink: #f4f5f7; --ink2: #9ba1ac; --ink3: #6b7280; --grid: #22262e;
   --profit: #199e70; --loss: #e66767; --c1: #3987e5; --c2: #c98500;
+  --warn: #fab219;
+}
+
+/*
+ * Midnight: true black, for reading the journal in bed.
+ *
+ * Not a darker dark for its own sake. On the OLED screen in a phone a black
+ * pixel is an unlit one, so it costs no battery and throws no glare — and the
+ * accents are lifted a step, because a colour that reads correctly against a
+ * near-black surface loses its footing against an actually black one.
+ */
+:root[data-theme="midnight"] {
+  color-scheme: dark;
+  --plane: #000000; --s1: #0a0a0c; --s2: #101014; --s3: #17171c;
+  --line: rgb(255 255 255 / 0.11);
+  --ink: #f2f3f5; --ink2: #a3a7b0; --ink3: #767a84; --grid: #1d1d23;
+  --profit: #22b37f; --loss: #ef6a68; --c1: #4a8ff0; --c2: #d29100;
+  --warn: #f5b83d;
+}
+
+/*
+ * Paper: warm and low-contrast, for a bright room.
+ *
+ * Pure white is the worst surface to read a screen on outdoors; a warm paper
+ * tone takes the glare off without the washed-out greys that make numbers hard
+ * to pick out. The accents are darkened to keep their contrast against a
+ * lighter page than the default one.
+ */
+:root[data-theme="paper"] {
+  color-scheme: light;
+  --plane: #f3ede1; --s1: #fdfaf4; --s2: #fffdf9; --s3: #ebe4d5;
+  --line: rgb(60 50 35 / 0.16);
+  --ink: #241f19; --ink2: #514940; --ink3: #7d7465; --grid: #ded5c3;
+  --profit: #15795a; --loss: #bb3a39; --c1: #1f5faf; --c2: #8a6108;
+  --warn: #8a6108;
 }
 
 html, body { height: 100%; }
