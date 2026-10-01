@@ -258,8 +258,8 @@ export default async function Review({ searchParams }: {
                         <div className="text-[13.5px] font-semibold">
                           {t.direction === "long" ? "Bought" : "Sold"} {t.symbol}
                           {heldOverWeekend(t.openedAt, t.closedAt) && (
-                            <span className="ml-2 rounded px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide align-middle"
-                                  style={{ color: "var(--warn)", border: "1px solid var(--warn)" }}>weekend</span>
+                            <span className="ml-2 chip align-middle"
+                                  style={{ color: "var(--warn)", border: "1px solid var(--warn)" }}>Weekend</span>
                           )}
                         </div>
                         <div className="num truncate text-[11px]" style={{ color: "var(--ink3)" }}>
@@ -314,8 +314,8 @@ function TradeRow({ t, n, fmt, from }: {
           <div className="text-[13.5px] font-semibold">
             {t.direction === "long" ? "Bought" : "Sold"} {t.symbol}
             {heldOverWeekend(t.openedAt, t.closedAt) && (
-              <span className="ml-2 rounded px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide align-middle"
-                    style={{ color: "var(--warn)", border: "1px solid var(--warn)" }}>weekend</span>
+              <span className="ml-2 chip align-middle"
+                    style={{ color: "var(--warn)", border: "1px solid var(--warn)" }}>Weekend</span>
             )}
           </div>
           <div className="num truncate text-[11px]" style={{ color: "var(--ink3)" }}>

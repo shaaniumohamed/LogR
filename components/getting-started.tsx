@@ -105,12 +105,11 @@ export function GettingStarted({ setup, firstTradeHref }: {
         <dl className="mt-2 space-y-1.5 rounded-lg p-3 text-[12.5px] leading-relaxed"
             style={{ background: "var(--s3)", color: "var(--ink2)" }}>
           {[
-            ["Overview", "How you are doing overall, and the one number that decides it."],
-            ["Calendar", "Every day coloured by what it made or lost. Tap a day to read it."],
-            ["Trades", "The full list, filterable. Tap any trade to see its chart and write about it."],
-            ["Patterns", "What your results have in common — times, setups, mistakes, state of mind."],
+            ["Home", "How you are doing, and the habits costing you most."],
+            ["Trades", "Every trade by day. Tap one to see its chart and write about it."],
             ["Review", "Your unwritten trades, so nothing important goes unexamined."],
-            ["More", "Weekly notes, your rules, importing, and settings."],
+            ["Insights", "What your results have in common — your head, your timing, your setups."],
+            ["More", "The calendar, weekly review, your rules, importing and settings."],
           ].map(([name, what]) => (
             <div key={name}>
               <dt className="inline font-semibold" style={{ color: "var(--ink)" }}>{name} — </dt>

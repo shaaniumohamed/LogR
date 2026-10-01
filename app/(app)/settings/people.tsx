@@ -64,8 +64,8 @@ export function People({ invites, owners, gateOpen }: {
           <li key={email} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-3 py-2.5"
               style={{ background: "var(--s3)" }}>
             <span className="num min-w-0 flex-1 truncate text-[13px] font-medium">{email}</span>
-            <span className="rounded px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide"
-                  style={{ background: "var(--s1)", color: "var(--ink2)" }}>owner</span>
+            <span className="chip"
+                  style={{ background: "var(--s1)", color: "var(--ink2)" }}>Owner</span>
           </li>
         ))}
 

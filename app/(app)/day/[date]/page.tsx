@@ -236,8 +236,8 @@ export default async function DayPage({ params }: { params: Promise<{ date: stri
                       <span className="num" style={{ color: "var(--ink3)" }}>{fmtTime.format(t.openedAt)}</span>
                       <span>{t.direction === "long" ? "Bought" : "Sold"}</span>
                       {annotated.has(t.id) && (
-                        <span className="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide"
-                              style={{ background: "var(--s3)", color: "var(--ink2)" }}>noted</span>
+                        <span className="chip"
+                              style={{ background: "var(--s3)", color: "var(--ink2)" }}>Noted</span>
                       )}
                     </div>
                     <div className="num mt-0.5 truncate text-[11px]" style={{ color: "var(--ink3)" }}>

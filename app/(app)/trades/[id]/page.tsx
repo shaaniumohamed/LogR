@@ -36,7 +36,7 @@ export default async function TradeDetail({ params, searchParams }: {
    * three needs another's answer, so the only thing serialising them bought was
    * a tidier-looking function.
    */
-  const { account } = await requireContext();
+  const { account, isOwner: isOwnerView } = await requireContext();
   const [{ all, timeZone }, annotation, withLegs, shots, rules] = await Promise.all([
     loadTrades("all"),
     loadAnnotation(account.id, id),
@@ -344,6 +344,8 @@ export default async function TradeDetail({ params, searchParams }: {
         </Card>
       )}
 
+      {/* A guest cannot switch storage on, so without it there is nothing here for them. */}
+      {(storageConfigured() || isOwnerView) && (
       <Card>
         <Eyebrow>What you were looking at</Eyebrow>
         <Note>
@@ -352,7 +354,7 @@ export default async function TradeDetail({ params, searchParams }: {
           at, with whatever you had drawn on it. That is the only piece of evidence no export
           contains, and it is the one that makes a review honest six weeks later.
         </Note>
-        <Screenshots identityHash={t.id} shots={shots} enabled={storageConfigured()} />
+        <Screenshots identityHash={t.id} shots={shots} enabled={storageConfigured()} owner={isOwnerView} />
         <Info title="Where these are kept">
           In your own storage bucket, private. The page asks for a link that works for an hour
           and then stops, so nothing here survives being pasted somewhere by accident.
@@ -362,6 +364,7 @@ export default async function TradeDetail({ params, searchParams }: {
           the difference between doing this every evening and doing it once.
         </Info>
       </Card>
+      )}
 
       <Card>
         <Eyebrow>Annotate this trade</Eyebrow>

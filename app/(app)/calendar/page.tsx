@@ -51,8 +51,11 @@ export default async function CalendarPage({ searchParams }: {
   const currentMonth = today.slice(0, 7);
   const last = lastTraded > currentMonth ? lastTraded : currentMonth;
 
+  // Opens on the latest month you actually TRADED, not the calendar month. On
+  // the first of every month those differ, and the old default opened on an
+  // empty grid — the arrows still reach forward to today.
   const valid = /^\d{4}-(0[1-9]|1[0-2])$/.test(sp.month ?? "");
-  const asked = valid ? sp.month! : last;
+  const asked = valid ? sp.month! : lastTraded;
   const month = asked < first ? first : asked > last ? last : asked;
 
   const scale = Math.max(...days.map((d) => Math.abs(d.net)), 1);

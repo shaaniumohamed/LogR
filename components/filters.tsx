@@ -55,7 +55,7 @@ export function Filters({ groups, href, showing, total }: {
         <div className="space-y-3 border-t px-4 py-3" style={{ borderColor: "var(--line)" }}>
           {groups.map((g) => (
             <div key={g.key}>
-              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide"
+              <div className="mb-1.5 text-[12px] font-semibold"
                    style={{ color: "var(--ink3)" }}>{g.label}</div>
               <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1">
                 {g.options.map((o) => {
@@ -110,20 +110,13 @@ export function Segmented({ options, active, href, param }: {
   param: string;
 }) {
   return (
-    <div className="inline-flex rounded-lg p-0.5"
-         style={{ background: "var(--s3)", border: "1px solid var(--line)" }}>
-      {options.map((o) => {
-        const on = o.value === active;
-        return (
-          <Link key={o.value} href={href({ [param]: o.value, page: null })} scroll={false}
-                className="rounded-md px-2.5 py-1.5 text-[12px] font-semibold"
-                style={on
-                  ? { background: "var(--s1)", color: "var(--ink)", boxShadow: "0 1px 2px rgb(0 0 0 / 0.12)" }
-                  : { color: "var(--ink3)" }}>
-            {o.label}
-          </Link>
-        );
-      })}
+    <div className="seg max-w-full overflow-x-auto" role="tablist">
+      {options.map((o) => (
+        <Link key={o.value} href={href({ [param]: o.value, page: null })} scroll={false}
+              role="tab" aria-current={o.value === active ? "true" : undefined}>
+          {o.label}
+        </Link>
+      ))}
     </div>
   );
 }

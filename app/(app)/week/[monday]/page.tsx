@@ -231,8 +231,8 @@ export default async function WeekPage({ params }: { params: Promise<{ monday: s
                         <div className="text-[13.5px] font-semibold">
                           {trade.direction === "long" ? "Bought" : "Sold"} {trade.symbol}
                           {!written.has(trade.id) && (
-                            <span className="ml-2 inline-block whitespace-nowrap rounded px-1.5 py-0.5 align-middle text-[9px] font-bold uppercase tracking-wide"
-                                  style={{ background: "var(--s3)", color: "var(--ink2)" }}>not written up</span>
+                            <span className="ml-2 chip whitespace-nowrap align-middle"
+                                  style={{ background: "var(--s3)", color: "var(--ink2)" }}>Not written up</span>
                           )}
                         </div>
                         <div className="num truncate text-[11px]" style={{ color: "var(--ink3)" }}>

@@ -3,38 +3,14 @@ import { redirect } from "next/navigation";
 import { signOut } from "@/auth";
 import { requestContext } from "@/lib/session";
 import { ZoneSync } from "@/components/zone-sync";
-import { TabBar, TopNav } from "@/components/tab-bar";
+import { Logo, Sidebar, TabBar } from "@/components/nav";
+import { Icon } from "@/components/icons";
 import { AccountSwitcher } from "@/components/account-switcher";
 import { isSchemaBehind, schemaGaps } from "@/lib/db/schema-check";
 import { auth } from "@/auth";
 import { isOwner } from "@/lib/access";
 import { SchemaGapBanner, SchemaGapScreen } from "@/components/schema-gap";
 
-/**
- * Bottom tab bar on phones, inline nav on desktop. The journal's main session is
- * an evening one on a phone, so navigation lives under the thumb rather than in
- * a hamburger two taps away.
- */
-const NAV = [
-  { href: "/dashboard", label: "Overview", icon: "M3 9l7-6 7 6v9a1 1 0 0 1-1 1h-4v-5H8v5H4a1 1 0 0 1-1-1z" },
-  { href: "/calendar", label: "Calendar", icon: "M3 5h14v12H3zM3 8h14M7 3v3M13 3v3" },
-  { href: "/trades", label: "Trades", icon: "M4 4h12v12H4zM7 8h6M7 11h4" },
-  { href: "/analytics", label: "Patterns", icon: "M4 16V9M8 16V5M12 16v-5M16 16V7" },
-  { href: "/review", label: "Review", icon: "M4 3h12v14l-6-3-6 3zM7 7h6M7 10h4" },
-  { href: "/settings", label: "More", icon: "M3 6h14M3 10h14M3 14h14" },
-] as const;
-const DESKTOP_EXTRA = [
-  { href: "/week", label: "Week" },
-  { href: "/playbook", label: "Playbook" },
-  { href: "/import", label: "Import" },
-] as const;
-
-/**
- * The context, or the news that the database cannot answer for it yet.
- *
- * Only a schema gap is turned into a value: anything else is still a fault and
- * still belongs on the error path, where it can be seen and fixed.
- */
 /**
  * Owner, without asking the database.
  *
@@ -81,31 +57,57 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!ctx.hasAccess) redirect("/signin?error=AccessRevoked");
   const savedZone = ctx.timeZone;
 
+  const switcher = (
+    <AccountSwitcher
+      accounts={ctx.accounts.map((a) => ({ id: a.id, nickname: a.nickname, kind: a.accountKind }))}
+      activeId={ctx.account.id}
+    />
+  );
+  const signOutForm = (
+    <form action={async () => { "use server"; await signOut({ redirectTo: "/signin" }); }}>
+      <button type="submit" className="row-link flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13.5px] font-medium"
+              style={{ color: "var(--ink2)" }}>
+        <Icon name="signout" size={18} />
+        <span className="min-w-0 flex-1 truncate text-left">Sign out</span>
+      </button>
+      {ctx.email && (
+        <div className="truncate px-2.5 pt-1 text-[11.5px]" style={{ color: "var(--ink3)" }}>{ctx.email}</div>
+      )}
+    </form>
+  );
+
   return (
-    <div className="mx-auto flex min-h-screen max-w-3xl flex-col px-4">
-      <header className="flex items-center gap-3 py-4 sm:gap-5" style={{ borderBottom: "1px solid var(--line)" }}>
-        <Link href="/dashboard" className="shrink-0 text-base font-semibold tracking-tight">LogR</Link>
-        <TopNav tabs={[...NAV, ...DESKTOP_EXTRA]} />
-        <div className="ml-auto flex min-w-0 items-center gap-3">
-          <AccountSwitcher
-            accounts={ctx.accounts.map((a) => ({ id: a.id, nickname: a.nickname, kind: a.accountKind }))}
-            activeId={ctx.account.id}
-          />
-        </div>
-        <form className="shrink-0" action={async () => { "use server"; await signOut({ redirectTo: "/signin" }); }}>
-          <button type="submit" className="tap whitespace-nowrap text-xs" style={{ color: "var(--ink3)" }}>
-            Sign out
-          </button>
-        </form>
-      </header>
+    <div className="min-h-screen">
+      <Sidebar switcher={ctx.accounts.length > 1 ? switcher : null} footer={signOutForm} />
 
-      <main className="flex-1 py-5 pb-28 sm:pb-8">
-        <ZoneSync saved={savedZone} />
-        {!!gaps?.length && <SchemaGapBanner missing={gaps} owner={ctx.isOwner} />}
-        {children}
-      </main>
+      <div className="lg:pl-[232px]">
+        {/*
+          Phones: the wordmark and, when there is a choice, the account. Sign-out
+          used to sit here, in the most valuable strip of the screen, for an
+          action taken once a month; it lives in More now.
+        */}
+        <header className="sticky top-0 z-20 flex items-center gap-3 px-4 py-3 lg:hidden"
+                style={{
+                  background: "color-mix(in srgb, var(--plane) 88%, transparent)",
+                  backdropFilter: "saturate(1.6) blur(16px)",
+                  WebkitBackdropFilter: "saturate(1.6) blur(16px)",
+                  paddingTop: "max(12px, env(safe-area-inset-top))",
+                }}>
+          <Link href="/dashboard" className="flex shrink-0 items-center gap-2">
+            <Logo size={24} />
+            <span className="text-[17px] font-semibold tracking-tight">LogR</span>
+          </Link>
+          <div className="ml-auto min-w-0">{switcher}</div>
+        </header>
 
-      <TabBar tabs={NAV} />
+        <main className="mx-auto w-full max-w-3xl px-4 pb-28 pt-2 lg:max-w-[1120px] lg:px-10 lg:pb-12 lg:pt-8">
+          <ZoneSync saved={savedZone} />
+          {!!gaps?.length && <SchemaGapBanner missing={gaps} owner={ctx.isOwner} />}
+          {children}
+        </main>
+      </div>
+
+      <TabBar />
     </div>
   );
 }

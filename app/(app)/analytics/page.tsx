@@ -10,6 +10,9 @@ import { clusterLevels, type Mark } from "@/lib/core/levels";
 import { NEWS_WINDOW_MINUTES, newsWindow } from "@/lib/core/news";
 import { LEFT_BUCKETS, caughtByClose, closuresIn, leftBucket, sessionLeftAt, type EntryTiming } from "@/lib/core/market-hours";
 import { loadHtfBars } from "@/lib/candles";
+import { LeaksCard } from "@/components/leaks-card";
+import { leaksFrom } from "@/lib/leaks-data";
+import { Icon, type IconName } from "@/components/icons";
 import { loadEvents } from "@/lib/news";
 import { loadExits, loadTrades, resolvePeriod } from "@/lib/queries";
 import { requireContext } from "@/lib/session";
@@ -53,6 +56,15 @@ function mostTraded(trades: ZoneTrade[]): string {
   for (const t of trades) n.set(t.symbol, (n.get(t.symbol) ?? 0) + 1);
   return [...n.entries()].sort((a, b) => b[1] - a[1])[0][0];
 }
+
+const VIEW_TABS = [
+  { key: "leaks", label: "Leaks", icon: "leak" },
+  { key: "mind", label: "Mind", icon: "mind" },
+  { key: "timing", label: "Timing", icon: "clock" },
+  { key: "setups", label: "Setups", icon: "target" },
+  { key: "risk", label: "Risk", icon: "shield" },
+] as const satisfies readonly { key: string; label: string; icon: IconName }[];
+type View = (typeof VIEW_TABS)[number]["key"];
 
 /** Patterns and Trades share one period, so a drill-down lands on the same slice. */
 const drill = (period: string, params: Record<string, string>) =>
@@ -147,8 +159,10 @@ const ENDED_LABEL: Record<string, string> = {
   unknown: "Not recorded",
 };
 
-export default async function Analytics({ searchParams }: { searchParams: Promise<{ period?: string }> }) {
-  const period = resolvePeriod((await searchParams).period);
+export default async function Analytics({ searchParams }: { searchParams: Promise<{ period?: string; view?: string }> }) {
+  const sp = await searchParams;
+  const period = resolvePeriod(sp.period);
+  const view: View = VIEW_TABS.some((v) => v.key === sp.view) ? (sp.view as View) : "leaks";
   const { account } = await requireContext();
   // Independent reads, started together — see the note on the trade page.
   const [{ trades, timeZone, isEmpty }, annotations, exits] = await Promise.all([
@@ -428,6 +442,9 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
     ? counterfactual(trades, (t) => (timingOf.get(t.id)?.minutesLeft ?? Infinity) < 15)
     : null;
 
+  // Ranked from the same reads the rest of this page uses — no extra queries.
+  const leaks = leaksFrom(trades, timeZone, annotations, events, hourly, 8);
+
   const overWeekend = trades.filter((t) => heldOverWeekend(t.openedAt, t.closedAt));
   const weekendStats = computeStats(overWeekend);
   const worstWeekend = overWeekend.length
@@ -437,15 +454,9 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
     ? counterfactual(trades, (t) => heldOverWeekend(t.openedAt, t.closedAt))
     : null;
 
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <PeriodTabs base="/analytics" active={period} />
-        <span className="text-[11px]" style={{ color: "var(--ink3)" }}>
-          from {count(s.n)}, no tagging needed
-        </span>
-      </div>
-
+  // Each section as it was, named, so the tabs below can arrange them.
+  const sec_howto = (
+    <>
       <Card>
         <Eyebrow>How to read these</Eyebrow>
         <Note>
@@ -463,7 +474,10 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           number moves. That is the only test that settles it.
         </Info>
       </Card>
-
+    </>
+  );
+  const sec_locked = (
+    <>
       {!hasEnough && (
         <Card>
           <Eyebrow>Locked until you annotate</Eyebrow>
@@ -478,7 +492,10 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           </Note>
         </Card>
       )}
-
+    </>
+  );
+  const sec_mindset = (
+    <>
       {showMindset && (
         <Card>
           <Eyebrow>Your state of mind</Eyebrow>
@@ -511,7 +528,10 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           </Info>
         </Card>
       )}
-
+    </>
+  );
+  const sec_news = (
+    <>
       {newsTrades.length >= MIN && cfNews && (
         <Card>
           <Eyebrow>Trades into the news</Eyebrow>
@@ -558,7 +578,10 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           </Caveat>
         </Card>
       )}
-
+    </>
+  );
+  const sec_levels = (
+    <>
       {levels.length > 0 && (
         <Card>
           <Eyebrow>Levels you keep returning to</Eyebrow>
@@ -611,7 +634,10 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           </Info>
         </Card>
       )}
-
+    </>
+  );
+  const sec_playbook = (
+    <>
       {setupRows.length > 0 && (
         <Card>
           <Eyebrow>Your playbook</Eyebrow>
@@ -626,28 +652,40 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           </Note>
         </Card>
       )}
-
+    </>
+  );
+  const sec_bySetup = (
+    <>
       <Section
         title="By setup"
         verdict={setupRows.length ? `Across the trades you have tagged, ${setupRows[0].label} is your strongest.` : ""}
         rows={setupRows}
         info="Only counts annotated trades, so it moves as you tag more. Treat a setup as unproven until it has at least thirty trades behind it."
       />
-
+    </>
+  );
+  const sec_byTf = (
+    <>
       <Section
         title="By timeframe you read it on"
         verdict="Whether the timeframe you take the setup from changes how it performs."
         rows={tfRows}
         info="If your lower timeframes underperform, you may be reading noise as structure — the same setup on a higher timeframe is effectively a different trade."
       />
-
+    </>
+  );
+  const sec_mistakes = (
+    <>
       <Section
         title="What your mistakes cost"
         verdict={mistakeRows.length ? `Trades you tagged with a mistake, grouped by the first one tagged.` : ""}
         rows={mistakeRows}
         info="Only trades where you tagged something. This is deliberately self-reported: the point is to make the price of a habit visible to you, not to catch you out."
       />
-
+    </>
+  );
+  const sec_ended = (
+    <>
       {endedRows.length >= 2 && (
         <Card>
           <Eyebrow>How your trades ended</Eyebrow>
@@ -682,7 +720,10 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           </Caveat>
         </Card>
       )}
-
+    </>
+  );
+  const sec_stops = (
+    <>
       <Section
         title="With and without a stop loss"
         verdict={
@@ -711,7 +752,10 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           </>
         }
       />
-
+    </>
+  );
+  const sec_tilt = (
+    <>
       {tilt && (
         <Card>
           <Eyebrow>What you do after a loss</Eyebrow>
@@ -765,7 +809,10 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           </Caveat>
         </Card>
       )}
-
+    </>
+  );
+  const sec_dist = (
+    <>
       {dist && (
         <Card>
           <Eyebrow>The size of your results</Eyebrow>
@@ -788,7 +835,7 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
             ))}
           </div>
           <Info title="Why the shape matters more than the average here">
-            The headline number on the Overview — the win rate your payoff ratio needs to break
+            The headline number on Home — the win rate your payoff ratio needs to break
             even — is built from an <i>average</i> win and an <i>average</i> loss. An average is
             the one statistic that cannot see a tail. Ninety-eight small losses and two
             catastrophic ones average out to something that looks survivable and is not.
@@ -803,7 +850,10 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           </Info>
         </Card>
       )}
-
+    </>
+  );
+  const sec_grid = (
+    <>
       {grid.cells.length >= 6 && grid.days.length >= 2 && (
         <Card>
           <Eyebrow>Day against hour · {zoneName(timeZone)}</Eyebrow>
@@ -833,7 +883,10 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           </Info>
         </Card>
       )}
-
+    </>
+  );
+  const sec_tod = (
+    <>
       <Section
         title={`Time of day · ${zoneName(timeZone)}`}
         verdict={`When you opened the trade, in your local time. ${
@@ -847,20 +900,30 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
             <>
               Not trading <b>{worstHour!.label}</b> would have removed {count(cfHour.removedCount)} and
               changed this period from {money0(cfHour.before)} to <b>{money0(cfHour.after)}</b>. Check
-              the Overview first — it only flags an hour that loses on most days, not one bad day.
+              the Leaks tab before acting on it — an hour only appears there if it is worse than
+              the rest of your trading by more than luck explains.
             </>
           ) : undefined
         }
       />
-
+    </>
+  );
+  const sec_session = (
+    <>
       <Section
         title={`Session · ${zoneName(timeZone)}`}
         verdict="The same picture grouped into trading sessions, which is usually easier to act on than single hours."
         rows={sessionRows}
       />
-
+    </>
+  );
+  const sec_weekday = (
+    <>
       <Section title="Day of the week" verdict="Whether some days consistently go better than others." rows={dayRows} />
-
+    </>
+  );
+  const sec_hold = (
+    <>
       <Section
         title="How long you held"
         verdict={`Your typical trade lasts ${s.avgHoldMinutes.toFixed(0)} minutes.`}
@@ -877,19 +940,29 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           ) : undefined
         }
       />
-
+    </>
+  );
+  const sec_dir = (
+    <>
       <Section
         title="Buying against selling"
         verdict="A persistent gap here usually means a directional habit rather than an edge."
         rows={dirRows}
       />
-
+    </>
+  );
+  const sec_ladder = (
+    <>
       <Section
         title="Laddering into a zone"
         verdict={`${trades.filter((t) => t.legCount > 1).length} of your ${trades.length} trades were built from more than one entry.`}
         rows={ladderRows}
         note="If single entries do better, your extra layers are adding size to trades that were already going wrong."
       />
+    </>
+  );
+  const sec_close = (
+    <>
       {closeRows.length >= 2 && (
         <Card>
           <Eyebrow>How close to the bell you opened</Eyebrow>
@@ -936,7 +1009,10 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           </Info>
         </Card>
       )}
-
+    </>
+  );
+  const sec_weekend = (
+    <>
       {overWeekend.length > 0 && (
         <Card>
           <Eyebrow>Held through a weekend</Eyebrow>
@@ -976,7 +1052,78 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
           </Info>
         </Card>
       )}
+    </>
+  );
 
+  /*
+   * Five tabs instead of one column of twenty-two sections.
+   *
+   * The page was eleven screens tall on a phone, every section built the same
+   * way and given the same weight, so the one finding that mattered was in
+   * there somewhere between the seventh and the fifteenth. The tabs follow the
+   * questions a trader actually asks — what is costing me, is it my head, is it
+   * my timing, is it my setups, how do I lose — and only the open one is sent.
+   */
+  const views: Record<View, React.ReactNode> = {
+    leaks: <>
+      <LeaksCard leaks={leaks} period={period} />
+      {sec_locked}
+      {sec_howto}
+    </>,
+    mind: <>
+      {sec_locked}
+      {sec_mindset}
+      {sec_tilt}
+      {sec_mistakes}
+    </>,
+    timing: <>
+      {sec_grid}
+      {sec_tod}
+      {sec_session}
+      {sec_weekday}
+      {sec_close}
+      {sec_news}
+      {sec_hold}
+      {sec_weekend}
+    </>,
+    setups: <>
+      {sec_playbook}
+      {sec_bySetup}
+      {sec_byTf}
+      {sec_levels}
+      {sec_ladder}
+      {sec_dir}
+    </>,
+    risk: <>
+      {sec_dist}
+      {sec_ended}
+      {sec_stops}
+    </>,
+  };
+
+  return (
+    <div className="space-y-4 lg:space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-3 pt-1">
+        <h1 className="text-[26px] font-semibold leading-none tracking-tight lg:text-[28px]">Insights</h1>
+        <PeriodTabs base="/analytics" active={period} keep={{ view }} />
+      </div>
+
+      {/* Five equal columns on a phone, so every tab is visible without a
+          sideways scroll nobody would think to try; icons where there is room. */}
+      <nav aria-label="Insight groups">
+        <div className="seg grid w-full grid-cols-5 sm:inline-flex sm:w-auto">
+          {VIEW_TABS.map((v) => (
+            <Link key={v.key} href={`/analytics?view=${v.key}&period=${period}`} scroll={false}
+                  aria-current={v.key === view ? "page" : undefined}
+                  className="inline-flex items-center justify-center gap-1.5 !px-1 sm:!px-3">
+              <Icon name={v.icon} size={15} className="hidden sm:block" />
+              {v.label}
+            </Link>
+          ))}
+        </div>
+      </nav>
+
+      <div className="space-y-4 lg:space-y-5">{views[view]}</div>
     </div>
   );
 }

@@ -5,8 +5,8 @@
    is insufficient, so secondary encoding (signs, baselines, printed values) is
    mandatory wherever it appears. */
 @theme {
-  --font-sans: var(--font-instrument), system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: var(--font-geist), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 /*
@@ -48,12 +48,14 @@
   --c1: #2566c4;
   --c2: #a37206;
   --warn: #8a5c00;
+  --shadow: 0 1px 2px rgb(15 15 15 / 0.04), 0 2px 8px -2px rgb(15 15 15 / 0.05);
 }
 
 /* Follow the phone, unless a theme has been chosen. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     color-scheme: dark;
+    --shadow: none;
     --plane: #0a0b0d; --s1: #12141a; --s2: #191c23; --s3: #1f232b;
     --line: rgb(255 255 255 / 0.08);
     --ink: #f4f5f7; --ink2: #9ba1ac; --ink3: #6b7280; --grid: #22262e;
@@ -64,6 +66,7 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --shadow: none;
   --plane: #0a0b0d; --s1: #12141a; --s2: #191c23; --s3: #1f232b;
   --line: rgb(255 255 255 / 0.08);
   --ink: #f4f5f7; --ink2: #9ba1ac; --ink3: #6b7280; --grid: #22262e;
@@ -81,6 +84,7 @@
  */
 :root[data-theme="midnight"] {
   color-scheme: dark;
+  --shadow: none;
   --plane: #000000; --s1: #0a0a0c; --s2: #101014; --s3: #17171c;
   --line: rgb(255 255 255 / 0.11);
   --ink: #f2f3f5; --ink2: #a3a7b0; --ink3: #767a84; --grid: #1d1d23;
@@ -113,14 +117,97 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
-.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+/*
+ * Figures: the body face with tabular digits, so a column of amounts aligns
+ * without looking like code. Prices keep the monospace (.price) because on a
+ * price ladder digit-for-digit alignment is the whole point.
+ */
+.num { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.price { font-family: var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 .pos { color: var(--profit); }
 .neg { color: var(--loss); }
-.card { background: var(--s1); border: 1px solid var(--line); border-radius: 12px; }
-.eyebrow {
-  font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em;
-  text-transform: uppercase; color: var(--ink3);
+
+/*
+ * Cards sit ON the page rather than being drawn onto it: a hairline plus a
+ * shadow soft enough to read as depth rather than decoration. Dark themes drop
+ * the shadow — on a dark page it is invisible at best and a grey smear at
+ * worst — and lean on the border instead.
+ */
+.card {
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
 }
+
+/*
+ * Section titles in sentence case. The tiny tracked capitals they replace are
+ * a print convention that reads as shouting on a screen and is measurably
+ * slower to read; every current product in this space has moved off them.
+ */
+.eyebrow {
+  font-size: 13px; font-weight: 600; letter-spacing: -0.005em;
+  color: var(--ink2);
+}
+
+/*
+ * A figure tile. On the page it is a small card in its own right; inside a
+ * card it drops to a quiet fill, so it never becomes a box inside a box.
+ */
+.tile { background: var(--s1); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.card .tile { background: var(--s3); border-color: transparent; box-shadow: none; }
+
+/* -------------------------------------------------------------- controls */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border-radius: 10px; padding: 9px 14px;
+  font-size: 13.5px; font-weight: 600; line-height: 1.2;
+  transition: background-color .15s ease, opacity .15s ease, transform .1s ease;
+}
+.btn:active { transform: scale(0.98); }
+.btn-primary { background: var(--ink); color: var(--plane); }
+.btn-secondary { background: var(--s3); color: var(--ink); }
+.btn-ghost { color: var(--ink2); }
+.btn-danger { background: var(--loss); color: #fff; }
+
+/* A segmented control: one track, the chosen option raised out of it. */
+.seg {
+  display: inline-flex; gap: 2px; padding: 3px; border-radius: 11px;
+  background: var(--s3);
+}
+.seg > * {
+  border-radius: 8px; padding: 6px 12px;
+  font-size: 13px; font-weight: 500; color: var(--ink2);
+  white-space: nowrap; transition: background-color .15s ease, color .15s ease;
+}
+.seg > [aria-current="true"], .seg > [aria-current="page"], .seg > [aria-pressed="true"] {
+  background: var(--s2); color: var(--ink); font-weight: 600; box-shadow: var(--shadow);
+}
+
+/* A tag on a trade. Sentence case and muted: there are often four on a row. */
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  border-radius: 6px; padding: 2px 7px;
+  font-size: 11.5px; font-weight: 500; line-height: 1.35;
+  background: var(--s3); color: var(--ink2);
+}
+.chip-loss { background: color-mix(in srgb, var(--loss) 12%, transparent); color: var(--loss); }
+.chip-warn { background: color-mix(in srgb, var(--warn) 14%, transparent); color: var(--warn); }
+.chip-profit { background: color-mix(in srgb, var(--profit) 12%, transparent); color: var(--profit); }
+
+/* A delta badge beside a headline figure. */
+.delta {
+  display: inline-flex; align-items: center; gap: 3px;
+  border-radius: 999px; padding: 2px 8px;
+  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+
+/* Rows that are links: a quiet hover on a pointer, nothing on touch. */
+@media (hover: hover) {
+  .row-link:hover { background: var(--s3); }
+}
+.row-link { transition: background-color .12s ease; }
 
 /* ---------------------------------------------------------------- touch */
 

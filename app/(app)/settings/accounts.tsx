@@ -50,13 +50,13 @@ export function Accounts({ accounts }: { accounts: AccountRow[] }) {
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold">{a.nickname}</span>
               {a.active && (
-                <span className="rounded px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide"
-                      style={{ background: "var(--ink)", color: "var(--plane)" }}>showing</span>
+                <span className="chip"
+                      style={{ background: "var(--ink)", color: "var(--plane)" }}>Showing</span>
               )}
               {a.kind !== "live" && (
-                <span className="rounded px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide"
+                <span className="chip"
                       style={{ background: "var(--s1)", color: "var(--ink2)", border: "1px solid var(--line)" }}>
-                  {a.kind}
+                  {a.kind.charAt(0).toUpperCase() + a.kind.slice(1)}
                 </span>
               )}
             </div>

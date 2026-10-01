@@ -57,10 +57,12 @@ async function compress(file: File): Promise<{ blob: Blob; width: number; height
   return { blob: jpeg, width, height };
 }
 
-export function Screenshots({ identityHash, shots, enabled }: {
+export function Screenshots({ identityHash, shots, enabled, owner = false }: {
   identityHash: string;
   shots: Shot[];
   enabled: boolean;
+  /** Only whoever runs the deployment can switch storage on, so only they are told how. */
+  owner?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +71,7 @@ export function Screenshots({ identityHash, shots, enabled }: {
   const router = useRouter();
 
   if (!enabled) {
+    if (!owner) return null;
     return (
       <div className="mt-3 rounded-lg p-3 text-[12.5px] leading-relaxed"
            style={{ background: "var(--s3)", color: "var(--ink2)" }}>

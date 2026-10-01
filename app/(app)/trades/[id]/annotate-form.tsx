@@ -109,7 +109,7 @@ export function AnnotateForm({ identityHash, existing, suggestedInvalidation, ne
         <div className="space-y-3">
           {CONFLUENCE_GROUPS.map((g) => (
             <div key={g.group}>
-              <div className="mb-1.5 text-[10.5px] font-bold uppercase tracking-wider" style={{ color: "var(--ink3)" }}>
+              <div className="mb-1.5 text-[12px] font-semibold" style={{ color: "var(--ink3)" }}>
                 {g.group}
               </div>
               <div className="flex flex-wrap gap-2">
@@ -153,7 +153,20 @@ export function AnnotateForm({ identityHash, existing, suggestedInvalidation, ne
                   style={{ background: "var(--s2)", border: "1px solid var(--line)", color: "var(--ink)" }} />
       </Field>
 
-      <div className="sticky bottom-20 flex items-center gap-3 sm:bottom-4">
+      {/*
+        A toolbar with its own surface. Without one it floated over the form
+        and covered whichever chip was scrolled beneath it — the setup you were
+        trying to tick was under the button that saves it. The offset clears the
+        tab bar, which shows below the desktop breakpoint, not the old one.
+      */}
+      <div className="sticky z-10 -mx-5 flex items-center gap-3 border-t px-5 py-3 lg:bottom-0"
+           style={{
+             bottom: "calc(64px + env(safe-area-inset-bottom, 0px))",
+             borderColor: "var(--line)",
+             background: "color-mix(in srgb, var(--s1) 90%, transparent)",
+             backdropFilter: "saturate(1.6) blur(14px)",
+             WebkitBackdropFilter: "saturate(1.6) blur(14px)",
+           }}>
         <button type="submit" disabled={pending}
                 className="flex-1 rounded-lg px-4 py-3 text-[14px] font-semibold disabled:opacity-60"
                 style={{ background: "var(--ink)", color: "var(--plane)" }}>

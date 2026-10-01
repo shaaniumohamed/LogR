@@ -3,17 +3,18 @@ import { computeStats, costPicture, pointValuePerLot } from "@/lib/core/metrics"
 import { spreadRange } from "@/lib/core/instrument";
 import { byHourLocal, byLocalDay, maxDrawdown, monthKey, weekKey } from "@/lib/core/analysis";
 import { localDayKey } from "@/lib/core/metrics";
-import { loadTrades, recentSlice, resolvePeriod } from "@/lib/queries";
+import { PERIODS, loadTrades, recentSlice, resolvePeriod } from "@/lib/queries";
 import { requireContext } from "@/lib/session";
 import { setupState } from "@/lib/onboarding";
 import { GettingStarted } from "@/components/getting-started";
 import { PeriodTabs } from "@/components/period-tabs";
 import { MonthCalendar, PeriodTrend } from "@/components/month-calendar";
 import { monthLabel } from "@/lib/core/calendar";
-import { BarChart, CurveChart, VersusBar } from "@/components/charts";
+import { BarChart, HeroCurve, VersusBar } from "@/components/charts";
+import { LeaksCard } from "@/components/leaks-card";
+import { leaksFor } from "@/lib/leaks-data";
 import { Info } from "@/components/info";
-import { Card, Estimated, Eyebrow, Note, Stat, StatGrid, Verdict, count, money, money0, pct } from "@/components/ui";
-import { zoneName } from "@/lib/timezones";
+import { Card, Estimated, Eyebrow, Stat, StatGrid, Verdict, count, money, money0, pct } from "@/components/ui";
 import type { ZoneTrade } from "@/lib/core/types";
 
 export const dynamic = "force-dynamic";
@@ -63,6 +64,9 @@ export default async function Dashboard({ searchParams }: {
   // Nothing imported: the only thing on this screen is how to begin.
   if (isEmpty) return <GettingStarted setup={setup} firstTradeHref={null} />;
 
+  // The habits costing money, over the same period as everything else here.
+  const leaks = await leaksFor(trades, timeZone, ctx.account.id, 3);
+
   const fmtDay = (d: string) =>
     new Date(`${d}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
 
@@ -88,8 +92,6 @@ export default async function Dashboard({ searchParams }: {
     : null;
   const days = byLocalDay(trades, timeZone);
   const allDays = byLocalDay(all, timeZone);
-  const hours = byHourLocal(trades, timeZone);
-  const badHours = hours.filter((h) => h.consistent).sort((a, b) => a.net - b.net).slice(0, 3);
 
   // The same bounds the Calendar tab uses, so stepping months behaves identically
   // wherever the grid is shown: every month from the first trade to now, including
@@ -98,7 +100,8 @@ export default async function Dashboard({ searchParams }: {
   const firstMonth = allDays[0].date.slice(0, 7);
   const lastTradedMonth = allDays[allDays.length - 1].date.slice(0, 7);
   const lastMonth = lastTradedMonth > today.slice(0, 7) ? lastTradedMonth : today.slice(0, 7);
-  const asked = /^\d{4}-(0[1-9]|1[0-2])$/.test(sp.month ?? "") ? sp.month! : lastMonth;
+  // The latest month with trades, for the same reason as the Calendar tab.
+  const asked = /^\d{4}-(0[1-9]|1[0-2])$/.test(sp.month ?? "") ? sp.month! : lastTradedMonth;
   const month = asked < firstMonth ? firstMonth : asked > lastMonth ? lastMonth : asked;
   const scale = Math.max(...allDays.map((d) => Math.abs(d.net)), 1);
 
@@ -113,7 +116,10 @@ export default async function Dashboard({ searchParams }: {
 
   const weeks = trendRows(all, (t) => weekKey(t.closedAt, timeZone),
     (k) => `w/c ${new Date(`${k}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })}`, 8);
-  const monthsTrend = trendRows(all, (t) => monthKey(t.closedAt, timeZone), monthLabel, 8);
+  // Short month names: "September 2026" wrapped onto two lines in a half-width card.
+  const shortMonth = (k: string) =>
+    new Date(`${k}-01T12:00:00Z`).toLocaleDateString("en-GB", { month: "short", year: "numeric", timeZone: "UTC" });
+  const monthsTrend = trendRows(all, (t) => monthKey(t.closedAt, timeZone), shortMonth, 8);
 
   const recent = recentSlice(all, 30);
   const rs = computeStats(recent);
@@ -121,35 +127,66 @@ export default async function Dashboard({ searchParams }: {
   const formGap = (rs.edgePoints ?? 0) - (lifetime.edgePoints ?? 0);
   const showForm = period === "all" && recent.length >= 30 && recent.length < all.length && Math.abs(formGap) > 1.5;
 
+  const periodLabel = PERIODS.find((p) => p.key === period)?.label ?? "All time";
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 lg:space-y-5">
       {gettingStarted}
-      <div className="flex items-center justify-between gap-3">
+
+      <div className="flex flex-wrap items-end justify-between gap-3 pt-1">
+        <h1 className="text-[26px] font-semibold leading-none tracking-tight lg:text-[28px]">Home</h1>
         <PeriodTabs base="/dashboard" active={period} />
-        <span className="text-[11px]" style={{ color: "var(--ink3)" }}>
-          {count(trades.length)} · {days.length} days
-        </span>
       </div>
 
-      <Card>
-        <Eyebrow>How it's going</Eyebrow>
-        <Verdict>{verdict(s.edgePoints, s.n)}</Verdict>
-        <div className="mt-3 flex items-end gap-3">
-          <div className={`num text-4xl font-semibold tracking-tight ${s.net >= 0 ? "pos" : "neg"}`}>{money(s.net)}</div>
-          <div className="pb-1.5 text-[13px]" style={{ color: "var(--ink2)" }}>from {count(s.n)}</div>
+      {/*
+        The answer to "how am I doing", first and largest: the result, the
+        shape that produced it, and in one sentence what it means. The running
+        total used to be its own card eight screens down; it is the most
+        natural picture of the headline number, so it sits beside it.
+      */}
+      <section className="card overflow-hidden">
+        <div className="grid gap-4 p-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-center lg:gap-8 lg:p-6">
+          <div>
+            <div className="text-[13px] font-medium" style={{ color: "var(--ink2)" }}>Net result · {periodLabel}</div>
+            <div className={`num mt-1.5 text-[40px] font-semibold leading-none tracking-tight lg:text-[46px] ${s.net >= 0 ? "pos" : "neg"}`}>
+              {money(s.net)}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-[13px]" style={{ color: "var(--ink2)" }}>{count(s.n)} · {days.length} days</span>
+              {showForm && (
+                <span className="delta" style={formGap > 0
+                  ? { background: "color-mix(in srgb, var(--profit) 12%, transparent)", color: "var(--profit)" }
+                  : { background: "color-mix(in srgb, var(--loss) 12%, transparent)", color: "var(--loss)" }}>
+                  Last 30 days {money0(rs.net)}
+                </span>
+              )}
+            </div>
+            <p className="mt-3 text-[14px] leading-relaxed" style={{ color: "var(--ink)" }}>{verdict(s.edgePoints, s.n)}</p>
+          </div>
+          <div className="-mx-1">
+            <HeroCurve points={curve} height={150} />
+            {dd && (
+              <div className="mt-2 flex justify-between px-1 text-[12px]" style={{ color: "var(--ink3)" }}>
+                <span>Deepest dip <b className="num neg">{money0(-dd.depth)}</b></span>
+                <span>{dd.recoveredAt ? `Recovered ${fmtDay(dd.recoveredAt)}` : `Still under the ${fmtDay(dd.peakAt)} high`}</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {s.breakEvenWinRate !== null && (
-          <div className="mt-5 pt-4" style={{ borderTop: "1px solid var(--line)" }}>
-            <div className="text-[13px] font-semibold">Win rate against what it needs to be</div>
+          <div className="border-t px-5 py-4 lg:px-6" style={{ borderColor: "var(--line)" }}>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div className="text-[13.5px] font-semibold">Win rate against what it needs to be</div>
+              <span className={`delta ${(s.edgePoints ?? 0) > 0 ? "" : ""}`}
+                    style={(s.edgePoints ?? 0) > 0
+                      ? { background: "color-mix(in srgb, var(--profit) 12%, transparent)", color: "var(--profit)" }
+                      : { background: "color-mix(in srgb, var(--loss) 12%, transparent)", color: "var(--loss)" }}>
+                {(s.edgePoints ?? 0) > 0 ? "+" : "−"}{Math.abs(s.edgePoints ?? 0).toFixed(1)} points {(s.edgePoints ?? 0) > 0 ? "ahead" : "short"}
+              </span>
+            </div>
             <VersusBar actual={s.winRate} target={s.breakEvenWinRate}
                        actualLabel="You win" targetLabel="Break-even needs" format={(v) => pct(v)} />
-            <p className="mt-3 text-[13px]">
-              <b className={(s.edgePoints ?? 0) > 0 ? "pos" : "neg"}>
-                {(s.edgePoints ?? 0) > 0 ? "+" : "−"}{Math.abs(s.edgePoints ?? 0).toFixed(2)} points
-              </b>{" "}
-              <span style={{ color: "var(--ink2)" }}>of margin.</span>
-            </p>
             <Info title="Why break-even isn't 50%">
               Your average win is {money(s.avgWin)} and your average loss is {money(s.avgLoss)}. When
               losses are bigger than wins you have to win more often just to stay level — the exact
@@ -158,84 +195,40 @@ export default async function Dashboard({ searchParams }: {
             </Info>
           </div>
         )}
-      </Card>
+      </section>
 
       <StatGrid>
-        <Stat label="Won" value={pct(s.winRate)} sub={`${s.wins}W · ${s.losses}L`} />
-        <Stat label="Per $1 lost" value={s.profitFactor?.toFixed(2) ?? "—"}
-              sub={`${money0(s.grossProfit)} / ${money0(-s.grossLoss)}`} />
+        <Stat label="Win rate" value={pct(s.winRate)} sub={`${s.wins} won · ${s.losses} lost`} />
+        <Stat label="Made per $1 lost" value={s.profitFactor !== null ? `$${s.profitFactor.toFixed(2)}` : "—"}
+              sub={`${money0(s.grossProfit)} vs ${money0(-s.grossLoss)}`} />
         <Stat label="Average trade" value={money(s.expectancy)} tone={s.expectancy >= 0 ? "pos" : "neg"}
-              sub={`${s.avgHoldMinutes.toFixed(0)} min hold`} />
-        <Stat label="Days up" value={`${upDays}/${days.length}`}
+              sub={`held ${s.avgHoldMinutes.toFixed(0)} min`} />
+        <Stat label="Green days" value={`${upDays} of ${days.length}`}
               sub={days.length ? pct(upDays / days.length, 0) : undefined} />
       </StatGrid>
 
-      {dd && (
+      {/*
+        "Is anything wrong?" — the habits costing money, next to the calendar
+        that shows when. Side by side on a desktop, where the old layout stacked
+        every card in one narrow column and left two thirds of the screen bare.
+      */}
+      <div className="grid gap-4 lg:grid-cols-2 lg:gap-5">
+        <LeaksCard leaks={leaks} period={period} compact />
         <Card>
-          <Eyebrow>Worst run</Eyebrow>
-          <Verdict>
-            You once gave back <b className="neg">{money0(dd.depth)}</b> from a high point, over{" "}
-            {dd.days === 0 ? "a single day" : `${dd.days} days`}
-            {dd.recoveredAt
-              ? ", and climbed back above it afterwards."
-              : " — and the account has not been back above that high since."}
-          </Verdict>
-          <div className="mt-3 grid grid-cols-3 gap-3 text-[13px]">
-            {([["High point", fmtDay(dd.peakAt)], ["Low point", fmtDay(dd.troughAt)],
-               ["Back above it", dd.recoveredAt ? fmtDay(dd.recoveredAt) : "not yet"]] as const).map(([k, v]) => (
-              <div key={k}>
-                <div className="text-[11px]" style={{ color: "var(--ink3)" }}>{k}</div>
-                <div className="font-semibold">{v}</div>
-              </div>
-            ))}
+          <div className="flex items-baseline justify-between gap-3">
+            <Eyebrow>Calendar</Eyebrow>
+            <Link href={`/calendar?month=${month}`} className="tap text-[13px] font-semibold" style={{ color: "var(--c1)" }}>
+              Open
+            </Link>
           </div>
-          <Info title="Why this and not just the total">
-            A running total that ends in profit can have spent a month deeply underwater on the
-            way, and that month is where accounts actually get closed — not because the strategy
-            stopped working, but because nobody had agreed in advance how much of a hole they
-            were willing to sit in.
-            <br /><br />
-            Knowing the number makes it a decision rather than a surprise. If the figure above
-            is one you would not take again, the size to change is the size you trade now, not
-            the one you traded then.
-          </Info>
-        </Card>
-      )}
-
-      {showForm && (
-        <Card>
-          <Eyebrow>Recent form</Eyebrow>
-          <Verdict>
-            Your last 30 days look {formGap > 0 ? "better" : "worse"} than your all-time average.
-          </Verdict>
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            {([["Last 30 days", rs], ["All time", lifetime]] as const).map(([label, x]) => (
-              <div key={label} className="rounded-lg p-3" style={{ background: "var(--s3)" }}>
-                <div className="text-[11px] font-semibold" style={{ color: "var(--ink2)" }}>{label}</div>
-                <div className={`num mt-1 text-lg font-semibold ${(x.edgePoints ?? 0) > 0 ? "pos" : "neg"}`}>
-                  {x.edgePoints !== null ? `${x.edgePoints > 0 ? "+" : "−"}${Math.abs(x.edgePoints).toFixed(1)} pts` : "—"}
-                </div>
-                <div className="num text-[11px]" style={{ color: "var(--ink3)" }}>{money0(x.net)} · {count(x.n)}</div>
-              </div>
-            ))}
+          <div className="mt-2">
+            <MonthCalendar days={allDays} month={month} first={firstMonth} last={lastMonth}
+                           base="/dashboard" scale={scale} today={today} />
           </div>
         </Card>
-      )}
+      </div>
 
-      <Card>
-        <div className="flex items-baseline justify-between gap-3">
-          <Eyebrow>Calendar</Eyebrow>
-          <Link href={`/calendar?month=${month}`} className="tap text-[12px] font-semibold" style={{ color: "var(--c1)" }}>
-            Open calendar →
-          </Link>
-        </div>
-        <div className="mt-2">
-          <MonthCalendar days={allDays} month={month} first={firstMonth} last={lastMonth}
-                         base="/dashboard" scale={scale} today={today} />
-        </div>
-      </Card>
-
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2 lg:gap-5">
         <Card>
           <Eyebrow>Week by week</Eyebrow>
           <PeriodTrend rows={weeks} label="week" />
@@ -246,23 +239,19 @@ export default async function Dashboard({ searchParams }: {
         </Card>
       </div>
 
-      <Card>
-        <Eyebrow>Running total</Eyebrow>
-        <CurveChart points={curve} format={(v) => money0(v)} aria="Running profit with drawdown shaded" />
-      </Card>
-
       {cost && spread && (
         <Card>
-          <Eyebrow>Spread cost<Estimated /></Eyebrow>
+          <Eyebrow>What the spread cost<Estimated /></Eyebrow>
           <Verdict>
-            You kept <b>{money(s.net)}</b> of an estimated{" "}
-            <b>{money0(cost.grossLo)}–{money0(cost.grossHi)}</b> earned before costs.
+            {cost.grossLo > 0
+              ? <>Before costs you were up an estimated <b>{money0(cost.grossLo)}–{money0(cost.grossHi)}</b>. The spread took the rest.</>
+              : <>The spread added an estimated <b>{money0(cost.costLo)}–{money0(cost.costHi)}</b> to what you lost.</>}
           </Verdict>
           <BarChart
             rows={[
-              { label: "Earned", value: (cost.grossLo + cost.grossHi) / 2, meta: "before costs" },
+              { label: "Before costs", value: (cost.grossLo + cost.grossHi) / 2, meta: "estimated" },
               { label: "Spread", value: -(cost.costLo + cost.costHi) / 2, meta: `${s.totalLots.toFixed(1)} lots traded` },
-              { label: "Kept", value: s.net, meta: "after costs", flag: true },
+              { label: "What you kept", value: s.net, meta: "after costs", flag: true },
             ]}
             format={(v) => money0(v)}
           />
@@ -281,27 +270,6 @@ export default async function Dashboard({ searchParams }: {
           </Info>
         </Card>
       )}
-
-      {badHours.length > 0 && (
-        <Card>
-          <Eyebrow>Costly hours · {zoneName(timeZone)}</Eyebrow>
-          <Verdict>Hours you lost on most days you traded them.</Verdict>
-          <BarChart
-            rows={badHours.map((h) => ({
-              label: h.label, value: h.net,
-              meta: `${count(h.trades)} · down ${h.losingDays} of ${h.days} days`,
-            }))}
-            format={(v) => money0(v)}
-          />
-          <Note>Skipping your worst hour alone would be worth {money0(-badHours[0].net)}.</Note>
-        </Card>
-      )}
-
-      <div className="pt-1 text-center">
-        <Link href="/analytics" className="tap text-[13px] font-semibold" style={{ color: "var(--c1)" }}>
-          See all patterns →
-        </Link>
-      </div>
     </div>
   );
 }

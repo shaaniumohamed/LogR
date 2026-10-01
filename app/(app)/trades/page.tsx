@@ -73,7 +73,10 @@ export default async function Trades({ searchParams }: {
   const sp = await searchParams;
   const period = resolvePeriod(sp.period);
   const page = Math.max(1, Number(sp.page ?? 1) || 1);
-  const PER = 100;
+  // Fifty, grouped by day, is four or five sessions for a trader at this pace —
+  // enough to scan, and half the page weight of the hundred it replaced, which
+  // shipped 358KB of HTML and 1,600 elements to a phone to show one screen.
+  const PER = 50;
 
   const { account } = await requireContext();
   const [{ all, trades, timeZone, isEmpty }, notes] = await Promise.all([
@@ -276,6 +279,14 @@ export default async function Trades({ searchParams }: {
   ];
 
   const s = computeStats(sorted);
+  const dayTotals = new Map<string, { net: number; n: number }>();
+  for (const t of sorted) {
+    const d = localDayKey(t.closedAt, timeZone);
+    const x = dayTotals.get(d) ?? { net: 0, n: 0 };
+    x.net += t.netPnl; x.n += 1;
+    dayTotals.set(d, x);
+  }
+  const multiSymbol = new Set(sorted.map((t) => t.symbol)).size > 1;
   const pages = Math.max(1, Math.ceil(sorted.length / PER));
   const safePage = Math.min(page, pages);
   const shown = sorted.slice((safePage - 1) * PER, safePage * PER);
@@ -295,9 +306,9 @@ export default async function Trades({ searchParams }: {
           <Link href="/trades" className="tap text-[12.5px]" style={{ color: "var(--c1)" }}>Clear</Link>
         </div>
       ) : (
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-3 pt-1">
+          <h1 className="text-[26px] font-semibold leading-none tracking-tight lg:text-[28px]">Trades</h1>
           <PeriodTabs base="/trades" active={period} />
-          <span className="text-[11px]" style={{ color: "var(--ink3)" }}>times in your local time</span>
         </div>
       )}
 
@@ -314,17 +325,16 @@ export default async function Trades({ searchParams }: {
 
       <Filters groups={groups} href={href} showing={sorted.length} total={pool.length} />
 
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <Segmented options={[...SORTS]} active={sort} href={href} param="sort" />
-        <span className="text-[11px]" style={{ color: "var(--ink3)" }}>
-          {count(sorted.length)}
-        </span>
+        <span className="text-[12px]" style={{ color: "var(--ink3)" }}>{count(sorted.length)}</span>
       </div>
 
-      <StatGrid cols={3}>
+      <StatGrid cols={4}>
         <Stat label="Net result" value={money(s.net)} tone={s.net >= 0 ? "pos" : "neg"} sub={count(s.n)} />
-        <Stat label="Won" value={pct(s.winRate)} sub={`${s.wins} won, ${s.losses} lost`} />
+        <Stat label="Win rate" value={pct(s.winRate)} sub={`${s.wins} won · ${s.losses} lost`} />
         <Stat label="Average trade" value={money(s.expectancy)} tone={s.expectancy >= 0 ? "pos" : "neg"} />
+        <Stat label="Made per $1 lost" value={s.profitFactor !== null ? `$${s.profitFactor.toFixed(2)}` : "—"} />
       </StatGrid>
 
       {shown.length === 0 ? (
@@ -335,67 +345,110 @@ export default async function Trades({ searchParams }: {
           </p>
         </Card>
       ) : (
-        <Card className="!p-0">
-          <ul>
-            {shown.map((t, i) => {
-              const how = endedHow(t);
-              const weekend = heldOverWeekend(t.openedAt, t.closedAt);
-              const dayKey = localDayKey(t.closedAt, timeZone);
-              const a = byHash.get(t.id);
-              return (
-                <li key={t.id} style={{ borderTop: i === 0 ? "none" : "1px solid var(--line)" }}>
-                  <Link href={`/trades/${t.id}`} className="flex items-center gap-3 px-4 py-3">
-                    <span className="h-7 w-1 shrink-0 rounded-full"
-                          style={{ background: t.netPnl >= 0 ? "var(--profit)" : "var(--loss)" }} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-[13.5px] font-semibold">
-                        <span>{t.direction === "long" ? "Bought" : "Sold"} {t.symbol}</span>
-                        {how && <Tag>{how}</Tag>}
-                        {weekend && <Tag warn>Over a weekend</Tag>}
-                      </div>
-                      {a && (a.setup || a.emotion || a.mistakes?.length) && (
-                        <div className="mt-1 flex flex-wrap gap-1">
-                          {a.setup && <Tag>{a.setup}</Tag>}
-                          {a.emotion && <Tag>{feelingLabel(a.emotion)}</Tag>}
-                          {a.mistakes?.slice(0, 2).map((m) => <Tag key={m} warn>{mistakeLabel(m)}</Tag>)}
-                        </div>
-                      )}
-                      <div className="num mt-0.5 truncate text-[11px]" style={{ color: "var(--ink3)" }}>
-                        {fmtDay.format(t.openedAt)} {fmtTime.format(t.openedAt)} ·{" "}
-                        {t.legCount > 1 ? `${t.legCount} entries` : "1 entry"}
-                        {t.exitCount > t.legCount ? `, ${t.exitCount} exits` : ""} ·{" "}
-                        {t.lots.toFixed(2)} lots ·{" "}
-                        {t.holdMinutes < 1 ? "under a minute" : `${Math.round(t.holdMinutes)} min`}
-                      </div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <div className={`num text-[14px] font-semibold ${t.netPnl >= 0 ? "pos" : "neg"}`}>
-                        {money(t.netPnl)}
-                      </div>
-                      <div className="text-[10px]" style={{ color: "var(--ink3)" }}>{dayKey.slice(5)}</div>
-                    </div>
-                    <span className="shrink-0" style={{ color: "var(--ink3)" }}>›</span>
+        <div className="space-y-3">
+          {groupsOf(shown).map((g) => {
+            const total = g.day ? dayTotals.get(g.day) : undefined;
+            return (
+              <section key={g.day ?? "all"} className="card overflow-hidden">
+                {g.day && total && (
+                  <Link href={`/day/${g.day}`}
+                        className="row-link flex items-center gap-3 border-b px-4 py-2.5"
+                        style={{ borderColor: "var(--line)", background: "var(--s2)" }}>
+                    <span className="text-[13.5px] font-semibold">{dayHeading(g.day)}</span>
+                    <span className="text-[12px]" style={{ color: "var(--ink3)" }}>{count(total.n)}</span>
+                    <span className={`num ml-auto text-[13.5px] font-semibold ${total.net >= 0 ? "pos" : "neg"}`}>
+                      {money(total.net)}
+                    </span>
                   </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </Card>
+                )}
+                <ul>
+                  {g.trades.map((t, i) => {
+                    const how = endedHow(t);
+                    const weekend = heldOverWeekend(t.openedAt, t.closedAt);
+                    const a = byHash.get(t.id);
+                    const chips = [
+                      a?.setup ? { text: a.setup, tone: "" } : null,
+                      a?.emotion ? { text: feelingLabel(a.emotion), tone: "" } : null,
+                      ...(a?.mistakes ?? []).slice(0, 2).map((m) => ({ text: mistakeLabel(m), tone: "chip-warn" })),
+                      weekend ? { text: "Over a weekend", tone: "chip-warn" } : null,
+                    ].filter((c): c is { text: string; tone: string } => !!c);
+                    return (
+                      <li key={t.id} style={{ borderTop: i === 0 ? "none" : "1px solid var(--line)" }}>
+                        <Link href={`/trades/${t.id}`} className="row-link flex items-center gap-3 px-4 py-3">
+                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] text-[11px] font-bold"
+                                style={t.direction === "long"
+                                  ? { background: "color-mix(in srgb, var(--c1) 12%, transparent)", color: "var(--c1)" }
+                                  : { background: "color-mix(in srgb, var(--c2) 14%, transparent)", color: "var(--c2)" }}>
+                            {t.direction === "long" ? "BUY" : "SELL"}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-baseline gap-2">
+                              <span className="num text-[14px] font-semibold">
+                                {g.day ? fmtTime.format(t.openedAt) : `${fmtDay.format(t.openedAt)}, ${fmtTime.format(t.openedAt)}`}
+                              </span>
+                              {multiSymbol && <span className="text-[12.5px] font-medium" style={{ color: "var(--ink2)" }}>{t.symbol}</span>}
+                              {how && <span className="text-[12px]" style={{ color: "var(--ink3)" }}>{how}</span>}
+                            </div>
+                            <div className="num mt-0.5 truncate text-[12px]" style={{ color: "var(--ink3)" }}>
+                              {t.legCount > 1 ? `${t.legCount} entries` : "1 entry"}
+                              {t.exitCount > t.legCount ? `, ${t.exitCount} exits` : ""} · {t.lots.toFixed(2)} lots ·{" "}
+                              {t.holdMinutes < 1 ? "under a minute" : `${Math.round(t.holdMinutes)} min`}
+                            </div>
+                            {chips.length > 0 && (
+                              <div className="mt-1.5 flex flex-wrap gap-1">
+                                {chips.slice(0, 3).map((c) => <span key={c.text} className={`chip ${c.tone}`}>{c.text}</span>)}
+                              </div>
+                            )}
+                          </div>
+                          <span className={`num shrink-0 text-[14.5px] font-semibold ${t.netPnl >= 0 ? "pos" : "neg"}`}>
+                            {money(t.netPnl)}
+                          </span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
       )}
 
       {pages > 1 && (
-        <div className="flex items-center justify-between text-[13px]">
+        <div className="flex items-center justify-between gap-3">
           {safePage > 1
-            ? <Link href={href({ page: String(safePage - 1) })} className="tap" style={{ color: "var(--c1)" }}>← Newer</Link>
+            ? <Link href={href({ page: String(safePage - 1) })} className="btn btn-secondary">Newer</Link>
             : <span />}
-          <span style={{ color: "var(--ink3)" }}>Page {safePage} of {pages}</span>
+          <span className="text-[12.5px]" style={{ color: "var(--ink3)" }}>Page {safePage} of {pages}</span>
           {safePage < pages
-            ? <Link href={href({ page: String(safePage + 1) })} className="tap" style={{ color: "var(--c1)" }}>Older →</Link>
+            ? <Link href={href({ page: String(safePage + 1) })} className="btn btn-secondary">Older</Link>
             : <span />}
         </div>
       )}
     </div>
   );
+
+  /*
+   * By day when the list is in time order, because that is how a trader
+   * remembers trades — "Thursday, after the CPI" — and a day's total is the
+   * first thing they want next to it. By result, grouping would scatter one
+   * day across the whole list, so it stays flat and each row carries its date.
+   */
+  function groupsOf(list: ZoneTrade[]): { day: string | null; trades: ZoneTrade[] }[] {
+    if (sort !== "recent" && sort !== "oldest") return [{ day: null, trades: list }];
+    const out: { day: string; trades: ZoneTrade[] }[] = [];
+    for (const t of list) {
+      const d = localDayKey(t.closedAt, timeZone);
+      if (out.length && out[out.length - 1].day === d) out[out.length - 1].trades.push(t);
+      else out.push({ day: d, trades: [t] });
+    }
+    return out;
+  }
+}
+
+function dayHeading(day: string): string {
+  return new Date(`${day}T12:00:00Z`).toLocaleDateString("en-GB",
+    { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 }
 
 /** A filter group only appears once the trader has used that vocabulary at all. */
@@ -405,15 +458,4 @@ function tagGroup(
 ): FilterGroup[] {
   if (values.length < 2) return [];
   return [{ key, label, active, options: values.map((v) => ({ value: v, label: toLabel(v) })) }];
-}
-
-function Tag({ children, warn }: { children: React.ReactNode; warn?: boolean }) {
-  return (
-    <span className="rounded px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide"
-          style={warn
-            ? { background: "color-mix(in srgb, var(--warn) 18%, transparent)", color: "var(--warn)" }
-            : { background: "var(--s3)", color: "var(--ink2)" }}>
-      {children}
-    </span>
-  );
 }

@@ -21,7 +21,7 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
   return <section className={`card p-5 ${className}`}>{children}</section>;
 }
 
-/** Small uppercase label. Names the card in words a trader already uses. */
+/** The section title. Names the card in words a trader already uses. */
 export function Eyebrow({ children }: { children: ReactNode }) {
   return <h2 className="eyebrow">{children}</h2>;
 }
@@ -39,24 +39,27 @@ export function Note({ children }: { children: ReactNode }) {
   return <p className="mt-3 text-[13px] leading-relaxed" style={{ color: "var(--ink2)" }}>{children}</p>;
 }
 
+/**
+ * Figures in tiles, rather than a grid of ruled cells.
+ *
+ * The old version drew a border round every cell inside a card that already
+ * had one — a box in a box in a box, which is the single most dated thing a
+ * dashboard can do. Tiles on a quiet fill separate the figures by space instead
+ * of by lines.
+ */
 export function StatGrid({ children, cols = 4 }: { children: ReactNode; cols?: 2 | 3 | 4 }) {
   const c = cols === 2 ? "grid-cols-2" : cols === 3 ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-2 sm:grid-cols-4";
-  return (
-    <div className={`grid ${c} gap-px overflow-hidden rounded-xl`}
-         style={{ background: "var(--line)", border: "1px solid var(--line)" }}>
-      {children}
-    </div>
-  );
+  return <div className={`grid ${c} gap-2`}>{children}</div>;
 }
 
 export function Stat({ label, value, sub, tone }: {
   label: string; value: string; sub?: string; tone?: "pos" | "neg";
 }) {
   return (
-    <div className="p-4" style={{ background: "var(--s1)" }}>
-      <div className={`num text-xl font-semibold tracking-tight ${tone ?? ""}`}>{value}</div>
-      <div className="mt-1 text-[12px] font-medium leading-tight" style={{ color: "var(--ink2)" }}>{label}</div>
-      {sub && <div className="mt-1 text-[11px] leading-tight" style={{ color: "var(--ink3)" }}>{sub}</div>}
+    <div className="tile rounded-xl px-3.5 py-3">
+      <div className="text-[12px] font-medium leading-tight" style={{ color: "var(--ink2)" }}>{label}</div>
+      <div className={`num mt-1 text-[21px] font-semibold leading-tight tracking-tight ${tone ?? ""}`}>{value}</div>
+      {sub && <div className="num mt-0.5 text-[11.5px] leading-tight" style={{ color: "var(--ink3)" }}>{sub}</div>}
     </div>
   );
 }
@@ -74,9 +77,8 @@ export function Empty({ title, body, action }: { title: string; body: string; ac
 /** Marks a figure as an estimate so it can never be mistaken for a measurement. */
 export function Estimated() {
   return (
-    <span className="ml-2 rounded px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wider align-middle"
-          style={{ color: "var(--ink3)", border: "1px dashed var(--line)" }}>
-      estimated
+    <span className="chip ml-2 align-middle" style={{ background: "transparent", border: "1px dashed var(--line)" }}>
+      Estimate
     </span>
   );
 }

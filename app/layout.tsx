@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { THEME_BOOT_SCRIPT } from "@/lib/themes";
 
@@ -12,16 +12,26 @@ import { THEME_BOOT_SCRIPT } from "@/lib/themes";
  * way from either. Self-hosting removes both crossings and the layout shift
  * that follows them, and costs nothing but build time.
  */
-const sans = Instrument_Sans({
+/*
+ * Geist, with Geist Mono kept for prices only.
+ *
+ * Every figure in the app used to be set in a monospace face, which is how a
+ * terminal looks rather than how a finance app does — the money in Revolut,
+ * Robinhood and Stripe is a proportional face with TABULAR figures, so columns
+ * still line up without every number looking like code. Geist has those
+ * figures built in. The monospace stays where it earns its place: a price
+ * ladder on a chart, where digit-for-digit alignment is the point.
+ */
+const sans = Geist({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
-  variable: "--font-instrument",
+  variable: "--font-geist",
   display: "swap",
 });
-const mono = JetBrains_Mono({
+const mono = Geist_Mono({
   subsets: ["latin"],
-  weight: ["400", "500", "700"],
-  variable: "--font-jetbrains",
+  weight: ["400", "500", "600"],
+  variable: "--font-geist-mono",
   display: "swap",
 });
 

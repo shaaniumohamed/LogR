@@ -448,3 +448,43 @@ export function Histogram({ bins, format, height = 128 }: {
     </div>
   );
 }
+
+
+/**
+ * The running total as a filled area, for the top of Home.
+ *
+ * The line takes the colour of where the account ENDED, because that is the
+ * fact the reader came for; the zero line is drawn because "above or below
+ * where I started" is the first thing anyone asks of an equity curve, and a
+ * curve with no baseline leaves them to guess. No gridlines and no axis
+ * labels: the exact figures are in the headline beside it, and this is there
+ * for the shape.
+ */
+export function HeroCurve({ points, height = 140 }: { points: number[]; height?: number }) {
+  if (points.length < 2) return null;
+  const W = 600, H = height, P = 6;
+  const min = Math.min(0, ...points), max = Math.max(0, ...points);
+  const X = (i: number) => (i / (points.length - 1)) * W;
+  const Y = (v: number) => P + (1 - (v - min) / (max - min || 1)) * (H - 2 * P);
+  const last = points[points.length - 1];
+  const colour = last >= 0 ? "var(--profit)" : "var(--loss)";
+  const line = points.map((v, i) => `${i ? "L" : "M"}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(" ");
+  const zero = Y(0);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="block w-full" style={{ height }}
+         role="img" aria-label={`Running total, ending at ${last.toFixed(0)}`}>
+      <defs>
+        <linearGradient id="hero-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={colour} stopOpacity={0.22} />
+          <stop offset="100%" stopColor={colour} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <line x1={0} x2={W} y1={zero} y2={zero} stroke="var(--ink3)" strokeOpacity={0.45}
+            strokeWidth={1} strokeDasharray="3 4" vectorEffect="non-scaling-stroke" />
+      <path d={`${line} L${W} ${zero} L0 ${zero} Z`} fill="url(#hero-fill)" />
+      <path d={line} fill="none" stroke={colour} strokeWidth={2} strokeLinejoin="round"
+            strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
