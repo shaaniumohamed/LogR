@@ -271,16 +271,56 @@ Every `bt_*` row is scoped to its user and covered by both isolation suites.
 | 0 | R2 set up (owner); this document | — |
 | 1 | Market data: parser, formats, candles, streaming import worker, signed upload/read routes, IndexedDB cache, coverage calendar | 2015–2026 imported; any day opens from cache in under a second |
 | 2 | Chart engine on the drawing kit: touch layer, undo/redo, toolbars, object list; journal chart migrated | All 86 tools usable with mouse and finger — shipped 8 Oct 2026 (see above) |
-| 3 | Replay workspace: strategies, sessions, clock, all timeframes, jumps, line/candles, volume, indicators, session boxes, news, resume | Replay any date on laptop and iPhone |
-| 4 | Simulated broker: ticket, orders, chart lines, partials, breakeven, trailing, ladders, position tool, costs | Golden-scenario tests pass; trades play out tick-exact |
+| 3 | Replay workspace: strategies, sessions, clock, all timeframes, jumps, line/candles, volume, indicators, session boxes, news, resume | Replay any date on laptop and iPhone — shipped with 4 (see below) |
+| 4 | Simulated broker: ticket, orders, chart lines, partials, breakeven, trailing, ladders, position tool, costs | Golden-scenario tests pass; trades play out tick-exact — shipped with 3 |
 | 5 | Backtest journal and analytics: write-ups, screenshots, dashboards, R statistics, exit what-ifs, backtest vs live | Owner-only flag removed |
 | 6 | Performance, accessibility, upstream contributions | Budgets below met |
+
+## What milestones 3 and 4 shipped (one release, owners only)
+
+- **Tables:** `bt_strategy`, `bt_session`, `bt_event`, `bt_trade`, `bt_position`,
+  all scoped by `user_id` (`drizzle/backtest-tables.sql` for an existing database).
+- **Broker** (`lib/core/sim/broker.ts`): market, limit and stop orders; SL/TP on
+  the correct side of the spread; partial close, close all, breakeven, trailing;
+  ladders split by lots or by risk; hedging; spread modes, commission, slippage,
+  swap, stop-out. A trade idea groups every leg it opened; R is measured on the
+  initial stops of what filled. Golden scenarios and snapshot-resume are tested
+  (`tests/sim-broker.test.ts`).
+- **Replay** (`lib/core/replay/`, `lib/market/replay.ts`): real-time speed
+  multipliers, step a candle or a minute, jumps (date and time on the trader's
+  clock, a random held day, next Tokyo/London/New York open with DST, next big
+  news, next day). Quiet stretches (weekends, holidays, the daily break) are
+  skipped. The forming candle is whole minutes plus the current minute's ticks;
+  nothing after the clock reaches the chart. Every tick the clock passes goes to
+  the broker when anything is open.
+- **Speed:** the chart library does work in proportion to the candles held on
+  every update (each series is re-indexed, each repaint rebuilds every series,
+  the markers plugin re-reads the series), and the drawing kit re-read the whole
+  series several times per drawing per repaint. So a replay chart starts with
+  the latest 4,000 stored candles and shows more of what is held as it is
+  scrolled left (`BarFeed` `window`); live candles are folded into the stored
+  history every 4,000; closed candles are built only for the minutes since the
+  last frame (`closedBetween`); the chart is redrawn at most 20 times a second
+  while playing, less often if each redraw is slow; the kit gets a candle list
+  that only re-reads the newest candles (`lib/chart/series-bars.ts`); session
+  times are remembered per day. Measured: 1-minute chart at 1 h/s went from
+  11 frames in 4 s to 60 fps, held for 80 s through a fold.
+- **Workspace** (`app/(app)/backtest/s/[id]`): the market chart from the chart
+  fixes with live candles, EMA/SMA/VWAP, session boxes, news markers, volume,
+  candles or line; the drawing kit (drawings stamped with replay time and hidden
+  when the clock goes back); trade lines for entries, stops, targets and orders,
+  draggable by mouse or finger; the Long/Short Position tool places an order;
+  ticket, open positions, history and stats; autosave of the view, actions,
+  finished trades and the account, with a reload prompt if another tab saved.
+- **Not yet:** write-ups and screenshots per trade, exit what-ifs, backtest vs
+  live, CSV export, opening it to invited friends (milestone 5).
 
 ## Budgets
 
 | Measure | Target |
 |---|---|
 | Pan with 5,000 bars and 100 drawings | 60 fps laptop, ≥ 45 fps iPhone |
+| Replay the 1-minute chart at 1 h/s | 60 fps laptop (measured: 55–62 fps over 80 s) |
 | Decode a tick day (worker) | < 100 ms |
 | First chart | < 1.5 s on 4G, < 300 ms from cache |
 | Import | ~1–2 min of processing per year of ticks, resumable |

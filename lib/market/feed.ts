@@ -21,6 +21,12 @@ import type { ManifestChunk } from "./importer";
  * Memory is capped by the number of files held. Going past it drops files from
  * the far side, which are fetched again (from this device's cache) if the
  * chart is scrolled back there.
+ *
+ * A replay chart takes only the last `window` candles to start with. The
+ * chart's work on every new candle grows with the number of candles it holds
+ * — a month of minute bars is 30,000 — so a replay playing the 1-minute chart
+ * fast stays smooth with a few thousand. Scrolling left shows more of what is
+ * held before another file is fetched.
  */
 
 type Source = Timeframe["source"];
@@ -36,6 +42,10 @@ export class BarFeed {
   readonly stats: LoadStats = emptyStats();
   bars: BarSeries | null = null;
 
+  /** Everything held, before the window. */
+  private all: BarSeries | null = null;
+  /** How many of the latest candles are shown; Infinity for all of them. */
+  private shown: number;
   private periods: string[] = [];
   private chunks = new Map<string, ManifestChunk>();
   private parts = new Map<string, BarSeries>();
@@ -43,20 +53,26 @@ export class BarFeed {
   private hi = -1;
   private busy: Promise<unknown> = Promise.resolve();
 
-  private constructor(readonly symbol: string, readonly tf: Timeframe, readonly until?: number) {}
+  private constructor(readonly symbol: string, readonly tf: Timeframe, readonly until?: number, private readonly window = Infinity) {
+    this.shown = window;
+  }
 
   /**
    * A feed with the files around `anchor` (epoch seconds) loaded — the latest
    * files when there is no anchor. `until` (exclusive) hides everything at or
-   * after that moment, for replay.
+   * after that moment, for replay; `window` shows only that many of the
+   * latest candles at first.
    */
-  static async open(symbol: string, tf: Timeframe, opts: { anchor?: number; until?: number } = {}): Promise<BarFeed> {
-    const feed = new BarFeed(symbol, tf, opts.until);
+  static async open(symbol: string, tf: Timeframe, opts: { anchor?: number; until?: number; window?: number } = {}): Promise<BarFeed> {
+    const feed = new BarFeed(symbol, tf, opts.until, opts.window);
     await feed.start(opts.anchor);
     return feed;
   }
 
-  get hasOlder() { return this.lo > 0; }
+  /** Candles held but left out of the window. */
+  private get hidden() { return this.all ? Math.max(0, this.all.count - this.shown) : 0; }
+
+  get hasOlder() { return this.lo > 0 || this.hidden > 0; }
   get hasNewer() {
     if (this.hi >= this.periods.length - 1) return false;
     return this.until === undefined || periodStart(this.tf.source, this.periods[this.hi + 1]) < this.until;
@@ -77,6 +93,13 @@ export class BarFeed {
   older(): Promise<boolean> {
     return this.serial(async () => {
       if (!this.hasOlder) return false;
+      if (this.hidden > 0) {
+        // Show more of what is already here before fetching anything.
+        this.shown += this.window;
+        if (this.shown >= this.all!.count) this.shown = Infinity;
+        this.view();
+        return true;
+      }
       await this.load([this.periods[this.lo - 1]]);
       this.lo--;
       while (this.hi - this.lo + 1 > LIMITS[this.tf.source].max) this.parts.delete(this.periods[this.hi--]);
@@ -91,6 +114,7 @@ export class BarFeed {
       if (!this.hasNewer) return false;
       await this.load([this.periods[this.hi + 1]]);
       this.hi++;
+      this.shown = Infinity;
       while (this.hi - this.lo + 1 > LIMITS[this.tf.source].max) this.parts.delete(this.periods[this.lo++]);
       this.rebuild();
       return true;
@@ -133,10 +157,23 @@ export class BarFeed {
       const p = this.parts.get(this.periods[i]);
       if (p && p.count) parts.push(p);
     }
-    if (!parts.length) { this.bars = null; return; }
+    if (!parts.length) { this.all = null; this.view(); return; }
     let src = concatBars(parts);
     if (this.until !== undefined) { const until = this.until; src = filterBars(src, (t) => t < until); }
-    this.bars = src.count ? forTimeframe(src, this.tf) : null;
+    this.all = src.count ? forTimeframe(src, this.tf) : null;
+    this.view();
+  }
+
+  /** `bars`: the latest `shown` candles of everything held. */
+  private view() {
+    const a = this.all;
+    if (!a || a.count <= this.shown) { this.bars = a; return; }
+    const from = a.count - this.shown;
+    this.bars = {
+      ...a, count: this.shown,
+      time: a.time.subarray(from), open: a.open.subarray(from), high: a.high.subarray(from), low: a.low.subarray(from),
+      close: a.close.subarray(from), volume: a.volume.subarray(from), spreadAvg: a.spreadAvg.subarray(from), spreadMax: a.spreadMax.subarray(from),
+    };
   }
 
   /** One load at a time, in the order asked. */

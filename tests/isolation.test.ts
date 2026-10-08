@@ -206,6 +206,9 @@ run("one trader cannot reach another's journal", () => {
       form.set("identityHash", "u-alice-trade-0");
       expect((await actions.saveQuickNote(null, form)).ok).toBe(false);
       expect((await actions.saveDrawings("u-alice-trade-0", [])).ok).toBe(false);
+      const bt = await import("@/lib/backtest-actions");
+      expect((await bt.createSession({ strategyId: "bt-strategy-alice", start: { random: true } })).ok).toBe(false);
+      expect((await bt.recordSession("bt-session-alice", { expectedVersion: 0, clockAt: 1, events: [], state: {}, trades: [] })).ok).toBe(false);
       expect((await actions.saveWeeklyNote("2026-09-14", new FormData())).ok).toBe(false);
       expect((await actions.addRule(null, new FormData())).error).toBeTruthy();
     });
@@ -225,6 +228,49 @@ run("one trader cannot reach another's journal", () => {
       asUser(BOB);
       const bobs = await actions.loadWeeklyNote("a-bob", "2026-09-14");
       expect(bobs?.focus).toBe("BOB OVERWRITE ATTEMPT");
+    });
+  });
+
+  describe("backtests stay with the person who ran them", () => {
+    let bt: typeof import("@/lib/backtest-actions");
+    let data: typeof import("@/lib/backtest-data");
+
+    beforeAll(async () => {
+      bt = await import("@/lib/backtest-actions");
+      data = await import("@/lib/backtest-data");
+    });
+
+    it("keeps the backtester to owners while it is new", async () => {
+      asUser(BOB);
+      expect((await bt.createStrategy(null, Object.assign(new FormData(), {}))).error).toBeTruthy();
+      expect((await bt.saveSessionView("bt-session-alice", { clockAt: 1, timeframe: "5m" })).ok).toBe(false);
+    });
+
+    it("does not let one owner read or change another owner's backtests", async () => {
+      process.env.OWNER_EMAILS = "alice@example.com,bob@example.com";
+      try {
+        expect(await data.loadSession("u-bob", "bt-session-alice")).toBeNull();
+        expect(await data.loadStrategy("u-bob", "bt-strategy-alice")).toBeNull();
+        expect(await data.loadBtTrades("u-bob", { sessionId: "bt-session-alice" })).toEqual([]);
+        expect((await data.loadSessionList("u-bob")).length).toBe(0);
+
+        asUser(BOB);
+        expect((await bt.saveSessionView("bt-session-alice", { clockAt: 1, timeframe: "1m", name: "BOB WAS HERE" })).ok).toBe(false);
+        expect((await bt.saveSessionDrawings("bt-session-alice", { v: 2, drawings: [] }, {})).ok).toBe(false);
+        expect((await bt.recordSession("bt-session-alice", { expectedVersion: 0, clockAt: 1, events: [], state: {}, trades: [] })).ok).toBe(false);
+        expect((await bt.updateStrategy("bt-strategy-alice", { name: "BOB WAS HERE" })).ok).toBe(false);
+        expect((await bt.createSession({ strategyId: "bt-strategy-alice", start: { random: true } })).ok).toBe(false);
+        await bt.deleteSession("bt-session-alice");
+        await bt.deleteStrategy("bt-strategy-alice");
+
+        asUser(ALICE);
+        const session = await data.loadSession("u-alice", "bt-session-alice");
+        expect(session?.name).toBe("SECRET-BT-SESSION-OF-ALICE");
+        expect((await data.loadStrategy("u-alice", "bt-strategy-alice"))?.name).toBe("SECRET-BT-OF-ALICE");
+        expect(await data.loadBtTrades("u-alice", { sessionId: "bt-session-alice" })).toHaveLength(1);
+      } finally {
+        process.env.OWNER_EMAILS = "alice@example.com";
+      }
     });
   });
 });

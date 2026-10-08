@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { MismatchDirection, type IChartApi, type ISeriesApi, type MouseEventParams, type Time } from "lightweight-charts";
+import { MismatchDirection, type IChartApi, type ISeriesApi, type MouseEventParams, type SeriesType, type Time } from "lightweight-charts";
 
-interface Bar { o: number; h: number; l: number; c: number; prev: number | null; v: number | null }
+interface Bar { o: number; h: number; l: number; c: number; prev: number | null; v: number | null; line: boolean }
 
 /**
  * The line of numbers at the top left of a chart, as on TradingView: the
@@ -17,7 +17,8 @@ interface Bar { o: number; h: number; l: number; c: number; prev: number | null;
  */
 export function ChartLegend({ chart, candles, volume, title, decimals, version }: {
   chart: IChartApi;
-  candles: ISeriesApi<"Candlestick">;
+  /** The price series: candles, or a line of closes. */
+  candles: ISeriesApi<SeriesType>;
   volume?: ISeriesApi<"Histogram"> | null;
   title: string;
   decimals: number;
@@ -28,11 +29,14 @@ export function ChartLegend({ chart, candles, volume, title, decimals, version }
 
   useEffect(() => {
     const read = (index: number): Bar | null => {
-      const d = candles.dataByIndex(index) as { open?: number; high?: number; low?: number; close?: number } | null;
-      if (!d || d.open === undefined || d.close === undefined) return null;
-      const p = candles.dataByIndex(index - 1) as { close?: number } | null;
+      type Point = { open?: number; high?: number; low?: number; close?: number; value?: number } | null;
+      const d = candles.dataByIndex(index) as Point;
+      const close = d?.close ?? d?.value;
+      if (!d || close === undefined) return null;
+      const p = candles.dataByIndex(index - 1) as Point;
       const v = volume ? (volume.dataByIndex(index) as { value?: number } | null)?.value ?? null : null;
-      return { o: d.open, h: d.high ?? d.open, l: d.low ?? d.open, c: d.close, prev: p?.close ?? null, v };
+      const line = d.open === undefined;
+      return { o: d.open ?? close, h: d.high ?? close, l: d.low ?? close, c: close, prev: p?.close ?? p?.value ?? null, v, line };
     };
     const latest = () => {
       // The last candle's index: step in from far to the right.
@@ -67,7 +71,7 @@ export function ChartLegend({ chart, candles, volume, title, decimals, version }
   const fmt = useMemo(() => new Intl.NumberFormat("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals, useGrouping: false }), [decimals]);
   const compact = useMemo(() => new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 }), []);
 
-  const tone = bar ? (bar.c >= bar.o ? "var(--profit)" : "var(--loss)") : "var(--ink2)";
+  const tone = bar ? (bar.line ? ((bar.prev ?? bar.c) <= bar.c ? "var(--profit)" : "var(--loss)") : bar.c >= bar.o ? "var(--profit)" : "var(--loss)") : "var(--ink2)";
   const change = bar && bar.prev !== null ? bar.c - bar.prev : null;
   const back = "color-mix(in srgb, var(--plane) 72%, transparent)";
 
@@ -78,9 +82,13 @@ export function ChartLegend({ chart, candles, volume, title, decimals, version }
         <span className="font-semibold" style={{ color: "var(--ink)" }}>{title}</span>
         {bar && (
           <>
-            <span>O <span style={{ color: tone }}>{fmt.format(bar.o)}</span></span>
-            <span>H <span style={{ color: tone }}>{fmt.format(bar.h)}</span></span>
-            <span>L <span style={{ color: tone }}>{fmt.format(bar.l)}</span></span>
+            {!bar.line && (
+              <>
+                <span>O <span style={{ color: tone }}>{fmt.format(bar.o)}</span></span>
+                <span>H <span style={{ color: tone }}>{fmt.format(bar.h)}</span></span>
+                <span>L <span style={{ color: tone }}>{fmt.format(bar.l)}</span></span>
+              </>
+            )}
             <span>C <span style={{ color: tone }}>{fmt.format(bar.c)}</span></span>
             {change !== null && bar.prev ? (
               <span style={{ color: change >= 0 ? "var(--profit)" : "var(--loss)" }}>

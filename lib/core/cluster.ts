@@ -71,7 +71,7 @@ export function clusterPositions(
   return groups.map(toZoneTrade);
 }
 
-function toZoneTrade(legs: Position[]): ZoneTrade {
+export function toZoneTrade(legs: Position[]): ZoneTrade {
   const lots = legs.reduce((s, l) => s + l.lots, 0);
   const openedAt = new Date(Math.min(...legs.map((l) => l.openedAt.getTime())));
   const closedAt = new Date(Math.max(...legs.map((l) => l.closedAt.getTime())));

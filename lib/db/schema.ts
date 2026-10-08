@@ -4,6 +4,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
 import type { StoredDrawings } from "@/lib/core/drawings-doc";
+import type { BtChartPrefs, BtSettings } from "@/lib/core/backtest";
 
 /* ------------------------------------------------------------------ auth.js */
 export const users = pgTable("user", {
@@ -447,3 +448,111 @@ export const marketChunks = pgTable("market_chunk", {
 }, (t) => [
   primaryKey({ columns: [t.symbol, t.resolution, t.period] }),
 ]);
+
+/* ---------------------------------------------------------------- backtest */
+/*
+ * Backtests belong to a person, not to a trading account: they are practice
+ * on the shared price history, and a trader with two broker accounts tests one
+ * strategy, not two. Every row carries user_id, and every read and write is
+ * scoped by it (tests/isolation.test.ts).
+ */
+
+/** A way of trading being tested: the thing sessions are grouped under. */
+export const btStrategies = pgTable("bt_strategy", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  /** The journal setup it corresponds to, for comparing with live trades. */
+  setup: text("setup"),
+  rules: jsonb("rules").$type<string[]>().notNull().default([]),
+  archived: boolean("archived").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("bt_strategy_user_idx").on(t.userId, t.archived)]);
+
+/** One replay: a starting moment, a simulated account, and everything done in it. */
+export const btSessions = pgTable("bt_session", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  strategyId: text("strategy_id").notNull().references(() => btStrategies.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  symbol: text("symbol").notNull().default("XAUUSD"),
+  /** The replay moment the session began at, and the one it has reached. */
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  clockAt: timestamp("clock_at", { withTimezone: true }).notNull(),
+  timeframe: text("timeframe").notNull().default("5m"),
+  chart: jsonb("chart").$type<BtChartPrefs>(),
+  drawings: jsonb("drawings").$type<StoredDrawings>(),
+  /** Replay time (epoch seconds) each drawing was made at, by drawing id — so going back hides later ones. */
+  drawingTimes: jsonb("drawing_times").$type<Record<string, number>>(),
+  settings: jsonb("settings").$type<BtSettings>().notNull(),
+  /** The simulated account after the last action (lib/core/sim/broker.ts SimState). */
+  state: jsonb("state").$type<Record<string, unknown>>(),
+  eventSeq: integer("event_seq").notNull().default(0),
+  status: text("status").notNull().default("active"),
+  /** Bumped on every save of the account, so a second open tab cannot overwrite the first. */
+  version: integer("version").notNull().default(0),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("bt_session_user_idx").on(t.userId, t.strategyId)]);
+
+/** Every action taken in a session, in order: the audit trail behind its results. */
+export const btEvents = pgTable("bt_event", {
+  sessionId: text("session_id").notNull().references(() => btSessions.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  seq: integer("seq").notNull(),
+  /** Replay time of the action. */
+  at: timestamp("at", { withTimezone: true }).notNull(),
+  kind: text("kind").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.sessionId, t.seq] })]);
+
+/** One finished trade idea — a ladder is one trade — in the journal's terms. */
+export const btTrades = pgTable("bt_trade", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull().references(() => btSessions.id, { onDelete: "cascade" }),
+  strategyId: text("strategy_id").notNull().references(() => btStrategies.id, { onDelete: "cascade" }),
+  ideaId: text("idea_id").notNull(),
+  direction: text("direction").notNull(),
+  openedAt: timestamp("opened_at", { withTimezone: true }).notNull(),
+  closedAt: timestamp("closed_at", { withTimezone: true }).notNull(),
+  lots: doublePrecision("lots").notNull(),
+  avgEntry: doublePrecision("avg_entry").notNull(),
+  avgExit: doublePrecision("avg_exit").notNull(),
+  /** Net of commission and swap. */
+  pnl: doublePrecision("pnl").notNull(),
+  /** Money at risk at entry; null when any leg had no stop. */
+  risk: doublePrecision("risk"),
+  r: doublePrecision("r"),
+  legs: integer("legs").notNull(),
+  closeReasons: jsonb("close_reasons").$type<string[]>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex("bt_trade_idea_idx").on(t.sessionId, t.ideaId),
+  index("bt_trade_user_idx").on(t.userId, t.strategyId),
+]);
+
+/** Each close event of a backtest trade, in the shape of the journal's `position`. */
+export const btPositions = pgTable("bt_position", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull().references(() => btSessions.id, { onDelete: "cascade" }),
+  tradeId: text("trade_id").notNull().references(() => btTrades.id, { onDelete: "cascade" }),
+  ticket: text("ticket").notNull(),
+  direction: text("direction").notNull(),
+  lots: doublePrecision("lots").notNull(),
+  openedAt: timestamp("opened_at", { withTimezone: true }).notNull(),
+  closedAt: timestamp("closed_at", { withTimezone: true }).notNull(),
+  openPrice: doublePrecision("open_price").notNull(),
+  closePrice: doublePrecision("close_price").notNull(),
+  stopLoss: doublePrecision("stop_loss"),
+  takeProfit: doublePrecision("take_profit"),
+  commission: doublePrecision("commission").notNull().default(0),
+  swap: doublePrecision("swap").notNull().default(0),
+  profit: doublePrecision("profit").notNull(),
+  closeReason: text("close_reason").notNull(),
+}, (t) => [index("bt_position_trade_idx").on(t.tradeId)]);

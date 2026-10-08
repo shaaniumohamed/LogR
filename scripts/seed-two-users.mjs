@@ -82,6 +82,19 @@ for (const p of people) {
   );
 }
 
+// A backtest of Alice's, every string marked, for the backtest isolation checks.
+await client.query(
+  `insert into bt_strategy (id,user_id,name,description) values ('bt-strategy-alice','u-alice','SECRET-BT-OF-ALICE','SECRET-BT-NOTES-OF-ALICE')`,
+);
+await client.query(
+  `insert into bt_session (id,user_id,strategy_id,name,started_at,clock_at,settings,notes)
+   values ('bt-session-alice','u-alice','bt-strategy-alice','SECRET-BT-SESSION-OF-ALICE',now(),now(),'{"balance":10000}'::jsonb,'SECRET-BT-NOTES-OF-ALICE')`,
+);
+await client.query(
+  `insert into bt_trade (id,user_id,session_id,strategy_id,idea_id,direction,opened_at,closed_at,lots,avg_entry,avg_exit,pnl,legs,close_reasons)
+   values ('bt-trade-alice','u-alice','bt-session-alice','bt-strategy-alice','T1','long',now(),now(),0.5,3000,3010,500,1,'["tp"]'::jsonb)`,
+);
+
 // Bob is here because Alice invited him; Alice is an owner via the environment.
 await client.query(
   `insert into invite (email, invited_by, note) values ('bob@example.com','u-alice','friend')`,

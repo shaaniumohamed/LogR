@@ -56,7 +56,7 @@ const as = (who, path, init = {}) =>
 const text = async (who, path) => (await as(who, path)).text();
 
 console.log("\nSIGNED OUT");
-for (const path of ["/dashboard", "/trades", "/settings", "/week", "/playbook"]) {
+for (const path of ["/dashboard", "/trades", "/settings", "/week", "/playbook", "/backtest", "/backtest/s/bt-session-alice"]) {
   const r = await as(null, path);
   check(`${path} is not served to a stranger`, r.status === 307 || r.status === 302,
     `got ${r.status}`);
@@ -261,6 +261,22 @@ console.log("\nEVERY SCREEN BOB CAN OPEN SHOWS ONLY BOB");
   }
   const more = await text("bob", "/more");
   check("Bob's More page names Bob", more.includes("bob@example.com"));
+}
+
+console.log("\nBACKTESTS");
+{
+  // Bob is not an owner, so the backtester is closed to him; and Alice's
+  // session, opened by its address, shows nothing of hers.
+  const BT = ["SECRET-BT-OF-ALICE", "SECRET-BT-SESSION-OF-ALICE", "SECRET-BT-NOTES-OF-ALICE"];
+  for (const path of ["/backtest", "/backtest/s/bt-session-alice", "/backtest/strategy/bt-strategy-alice"]) {
+    const body = await text("bob", path);
+    const leaked = BT.filter((m) => body.includes(m));
+    check(`${path} shows Bob nothing of Alice's backtests`, leaked.length === 0, leaked.join(", "));
+  }
+  const bobMore = await text("bob", "/more");
+  check("the backtester is not offered to a non-owner", !bobMore.includes('href="/backtest"'));
+  const aliceList = await text("alice", "/backtest");
+  check("Alice sees her own strategy", aliceList.includes("SECRET-BT-OF-ALICE"));
 }
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`);

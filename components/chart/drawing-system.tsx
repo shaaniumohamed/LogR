@@ -5,6 +5,7 @@ import { DrawingManager, OVERLAY_SPECS, type Drawing, type DrawingKind, type Mag
 import { attachTouchLayer, finishPlacement, type TouchLayer } from "@/lib/chart/touch-layer";
 import { DEFAULT_FAVOURITES, VARIABLE_LENGTH, toolLabel } from "@/lib/chart/kit";
 import type { ChartHandle } from "@/lib/chart/handle";
+import { seriesBars } from "@/lib/chart/series-bars";
 import { DrawingToolbar } from "./drawing-toolbar";
 import { ObjectsPanel, SelectionBar, SettingsSheet, TextEditor } from "./drawing-inspector";
 
@@ -28,7 +29,7 @@ const HISTORY_LIMIT = 100;
  * whole snapshots (the kit's own JSON, so an undo is exactly the chart as it
  * was), and the host's `onSave`, called a moment after the last change.
  */
-export function DrawingSystem({ handle, initial, onSave, onDirty, presets, interval, timeZone, decimals, pageScroll, panelAbove, extra }: {
+export function DrawingSystem({ handle, initial, onSave, onDirty, presets, interval, timeZone, decimals, pageScroll, panelAbove, extra, onTool, selectionActions }: {
   handle: ChartHandle;
   initial: Drawing[];
   /** The whole set, a moment after the last change (and at once on unmount if one is pending). */
@@ -46,6 +47,10 @@ export function DrawingSystem({ handle, initial, onSave, onDirty, presets, inter
   /** The strip sits under the chart, so its tool panel opens upwards. */
   panelAbove?: boolean;
   extra?: React.ReactNode;
+  /** The tool in hand changed (null when none). */
+  onTool?: (tool: DrawingKind | null) => void;
+  /** Extra buttons in the selected drawing's bar (e.g. "Place order" on a position tool). */
+  selectionActions?: (d: Drawing) => React.ReactNode;
 }) {
   const dmRef = useRef<DrawingManager | null>(null);
   const touchRef = useRef<TouchLayer | null>(null);
@@ -74,6 +79,8 @@ export function DrawingSystem({ handle, initial, onSave, onDirty, presets, inter
   onSaveRef.current = onSave;
   const onDirtyRef = useRef(onDirty);
   onDirtyRef.current = onDirty;
+  const onToolRef = useRef(onTool);
+  onToolRef.current = onTool;
 
   const fmtTime = useMemo(() => new Intl.DateTimeFormat("en-GB", {
     day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone,
@@ -82,7 +89,9 @@ export function DrawingSystem({ handle, initial, onSave, onDirty, presets, inter
   /* Create the kit on this chart; tear it down with the chart. */
   useEffect(() => {
     const { chart, series, host } = handle;
+    const feed = seriesBars(series);
     const dm = new DrawingManager(chart, series, {
+      bars: feed.bars,
       // The app's own typeface for words on drawings; the chart's axes keep
       // their monospace digits.
       fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--font-sans").trim() || undefined,
@@ -101,7 +110,7 @@ export function DrawingSystem({ handle, initial, onSave, onDirty, presets, inter
     setDrawings(dm.drawings());
 
     const offs = [
-      dm.on("tool", (k) => setTool(k)),
+      dm.on("tool", (k) => { setTool(k); onToolRef.current?.(k); }),
       dm.on("selection", (ids) => { setSelection([...ids]); if (!ids.length) setSettings(null); }),
       dm.on("visibility", (v) => setVisible(v)),
       dm.on("textEdit", (d, screen) => {
@@ -154,6 +163,7 @@ export function DrawingSystem({ handle, initial, onSave, onDirty, presets, inter
       touch.detach();
       if (touchRef.current === touch) touchRef.current = null;
       dm.destroy();
+      feed.dispose();
       if (dmRef.current === dm) dmRef.current = null;
     };
     const unregister = handle.onDispose(teardown);
@@ -231,7 +241,7 @@ export function DrawingSystem({ handle, initial, onSave, onDirty, presets, inter
       )}
 
       {selected && !tool && (
-        <SelectionBar d={selected} presets={presets?.(selected.kind)} onChange={update}
+        <SelectionBar d={selected} presets={presets?.(selected.kind)} actions={selectionActions?.(selected)} onChange={update}
                       onDelete={() => dm?.remove(selected.id)}
                       onDuplicate={() => {
                         if (!dm) return;

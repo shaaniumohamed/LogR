@@ -78,7 +78,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-screen">
-      <Sidebar switcher={ctx.accounts.length > 1 ? switcher : null} footer={signOutForm} />
+      <Sidebar switcher={ctx.accounts.length > 1 ? switcher : null} footer={signOutForm} backtest={ctx.isOwner} />
 
       <div className="lg:pl-[232px]">
         {/*

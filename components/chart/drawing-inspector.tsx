@@ -17,8 +17,10 @@ const LINE_STYLES: DrawingStyle["lineStyle"][] = ["solid", "dashed", "dotted"];
  * a TradingView user reaches for, laid out as a plain row so it works the same
  * under a finger as under a mouse.
  */
-export function SelectionBar({ d, presets = [], onChange, onDelete, onDuplicate, onSettings, onDone }: {
+export function SelectionBar({ d, presets = [], actions, onChange, onDelete, onDuplicate, onSettings, onDone }: {
   d: Drawing;
+  /** Extra controls the host adds for this kind of drawing. */
+  actions?: React.ReactNode;
   /** One-tap names with their colour, for the kinds of drawing that have them. */
   presets?: { label: string; color: string }[];
   onChange: (next: Drawing) => void;
@@ -69,6 +71,7 @@ export function SelectionBar({ d, presets = [], onChange, onDelete, onDuplicate,
         <Mini label="Copy" onClick={onDuplicate}><path d="M5.5 5.5h8v8h-8zM2.5 10.5v-8h8" /></Mini>
         <Mini label="Settings" onClick={onSettings}><path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" /></Mini>
         <Mini label="Delete" danger onClick={onDelete}><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 9h5.8l.6-9" /></Mini>
+        {actions}
         <button type="button" onClick={onDone} className="tap ml-auto px-2 text-[12.5px] font-semibold" style={{ color: "var(--c1)" }}>Done</button>
       </div>
       {/* The words get a row of their own: squeezed in beside the buttons they

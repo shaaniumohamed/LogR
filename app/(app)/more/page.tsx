@@ -42,12 +42,18 @@ const GROUPS: { title: string; rows: Row[] }[] = [
 
 export default async function More() {
   const ctx = await requireContext();
+  // The backtester is shown only to owners while it is new.
+  const groups = ctx.isOwner
+    ? GROUPS.map((g) => (g.title === "Journal"
+      ? { ...g, rows: [...g.rows, { href: "/backtest", icon: "candles" as IconName, label: "Backtest", hint: "Replay any day and trade it" }] }
+      : g))
+    : GROUPS;
 
   return (
     <div className="space-y-6 pt-2">
       <h1 className="text-[26px] font-semibold tracking-tight">More</h1>
 
-      {GROUPS.map((g) => (
+      {groups.map((g) => (
         <section key={g.title}>
           <h2 className="px-1 pb-2 text-[13px] font-medium" style={{ color: "var(--ink3)" }}>{g.title}</h2>
           <ul className="card divide-y overflow-hidden !p-0" style={{ borderColor: "var(--line)" }}>

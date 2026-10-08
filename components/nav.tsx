@@ -29,11 +29,12 @@ const WEEK: Dest = { href: "/week", label: "Weekly review", icon: "week" };
 const PLAYBOOK: Dest = { href: "/playbook", label: "Playbook", icon: "playbook" };
 const IMPORT: Dest = { href: "/import", label: "Import", icon: "upload" };
 const SETTINGS: Dest = { href: "/settings", label: "Settings", icon: "settings" };
+const BACKTEST: Dest = { href: "/backtest", label: "Backtest", icon: "candles" };
 
 const MOBILE_TABS: Dest[] = [
   HOME, TRADES, REVIEW, INSIGHTS,
   { href: "/more", label: "More", icon: "more",
-    match: ["/more", "/calendar", "/day", "/week", "/playbook", "/import", "/settings"] },
+    match: ["/more", "/calendar", "/day", "/week", "/playbook", "/import", "/settings", "/backtest"] },
 ];
 
 const SIDEBAR: { title?: string; items: Dest[] }[] = [
@@ -82,8 +83,12 @@ export function TabBar() {
  * every figure on every page beneath it; sign-out sits at the bottom because it
  * is the one action you want to be furthest from by accident.
  */
-export function Sidebar({ switcher, footer }: { switcher: ReactNode; footer: ReactNode }) {
+export function Sidebar({ switcher, footer, backtest = false }: { switcher: ReactNode; footer: ReactNode; backtest?: boolean }) {
   const path = usePathname();
+  // The backtester is shown only to owners while it is new.
+  const groups = backtest
+    ? SIDEBAR.map((g) => (g.title === "Analyse" ? { ...g, items: [...g.items, BACKTEST] } : g))
+    : SIDEBAR;
   return (
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-[232px] flex-col border-r px-3 py-5 lg:flex"
            style={{ borderColor: "var(--line)", background: "var(--plane)" }}>
@@ -94,7 +99,7 @@ export function Sidebar({ switcher, footer }: { switcher: ReactNode; footer: Rea
       {switcher && <div className="px-1 pb-4">{switcher}</div>}
 
       <nav aria-label="Sections" className="flex-1 space-y-5 overflow-y-auto">
-        {SIDEBAR.map((g, i) => (
+        {groups.map((g, i) => (
           <div key={i}>
             {g.title && (
               <div className="px-2.5 pb-1.5 text-[11.5px] font-medium" style={{ color: "var(--ink3)" }}>{g.title}</div>
