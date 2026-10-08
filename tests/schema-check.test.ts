@@ -86,7 +86,7 @@ describe("missingFrom", () => {
 describe("expectedObjects", () => {
   it("reads the real schema, so it cannot drift from it", () => {
     const tables = expectedObjects();
-    expect(tables.length).toBe(16);
+    expect(tables.length).toBe(17);
     const user = tables.find((t) => t.table === "user");
     expect(user?.columns).toContain("active_account_id");
   });

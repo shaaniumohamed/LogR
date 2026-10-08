@@ -75,6 +75,20 @@ export default async function Settings() {
       </Card>
 
       {ctx.isOwner && (
+        <Card className="!p-0">
+          <Link href="/settings/market" className="flex items-center gap-3 px-5 py-4">
+            <div className="min-w-0 flex-1">
+              <div className="text-[14px] font-semibold">Price history for backtesting</div>
+              <div className="mt-0.5 text-[12px]" style={{ color: "var(--ink3)" }}>
+                Import your Exness tick files, see which days are held, check them on a chart.
+              </div>
+            </div>
+            <span className="shrink-0" style={{ color: "var(--ink3)" }}>›</span>
+          </Link>
+        </Card>
+      )}
+
+      {ctx.isOwner && (
         <Card>
           <Eyebrow>Who can use this</Eyebrow>
           <Verdict>

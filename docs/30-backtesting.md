@@ -43,10 +43,26 @@ Three resolutions, all built from the same ticks by the same code
 
 | File | Granularity | Used for |
 |---|---|---|
-| `ticks/{SYMBOL}/{YYYY}/{YYYY-MM-DD}.lgrt.gz` | one UTC day | fills, seconds charts, the forming candle |
-| `m1/{SYMBOL}/{YYYY}/{YYYY-MM}.lgrb.gz` | one month | 1m–30m charts |
-| `h1/{SYMBOL}/{YYYY}.lgrb.gz` | one year | 1h, 4h, and the context behind them |
-| `d1/{SYMBOL}/all.lgrb.gz` | everything | 1d and 1w over years |
+| tick, period `YYYY-MM-DD` | one UTC day | fills, seconds charts, the forming candle |
+| m1, period `YYYY-MM` | one month | 1m–30m charts |
+| h1, period `YYYY` | one year | 1h, 4h, and the context behind them |
+| d1, period `YYYY` | one year (raw UTC days) | 1d and 1w over years |
+
+Objects are named `market/v1/{SYMBOL}/{resolution}/{YYYY}/{period}-{sha256 prefix}.{lgrt|lgrb}.gz`.
+The content hash in the name means a re-import writes beside the old file, the
+catalogue row switches to it, and only then is the old object removed — a
+reader mid-download never loses the file under it. The browser caches files in
+IndexedDB keyed by that hash, so nothing it holds can ever be stale.
+
+Import runs in a Web Worker on the owner's laptop (`lib/market/importer.ts`):
+the zip is unzipped as a stream, each finished UTC day is encoded and uploaded
+straight to R2 through a short-lived signed link, and month and year files are
+built as the import passes their end. Where the store already holds part of a
+month or year, only the days the import brings are replaced; a file's first and
+last day are joined with any stored half from the neighbouring file. Every
+upload is "describe → signed link → PUT → commit", and the describe step answers
+"skip" for a file already held byte-for-byte — so an interrupted import is
+simply run again. Removal is by whole year, the unit every file kind lines up on.
 
 The spread in these files is the **Standard** account's (`m` suffix). The
 trader's live account is Pro, so every session carries a spread setting: as

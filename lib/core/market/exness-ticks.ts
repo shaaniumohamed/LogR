@@ -148,7 +148,21 @@ export class ExnessTickParser {
   private sawHeader = false;
   private readonly ts = makeTimestampParser();
 
-  constructor(private readonly opts: { decimals: number; onTick: TickSink }) {}
+  private dec: number | null;
+
+  /**
+   * `decimals` fixes the price scale; or leave it out and `decimalsFor` picks
+   * one from the symbol on the first line (gold and EURUSD are stored at
+   * different scales, and which one a file holds is only known once it is open).
+   */
+  constructor(private readonly opts: { decimals?: number; decimalsFor?: (symbol: string | null) => number; onTick: TickSink }) {
+    this.dec = opts.decimals ?? null;
+  }
+
+  /** The price scale in use, once known. */
+  get decimals(): number | null {
+    return this.dec;
+  }
 
   /** The normalised symbol (XAUUSDm → XAUUSD), once a tick has been read. */
   get symbol(): string | null {
@@ -233,9 +247,10 @@ export class ExnessTickParser {
       else if (se - ss !== known.length || !text.startsWith(known, ss)) { this.stats.otherSymbol++; return; }
     }
 
+    if (this.dec === null) this.dec = this.opts.decimalsFor?.(this.sourceSymbol) ?? 3;
     const t = this.ts(text, fs[time], fe[time]);
-    const b2 = priceToInt(text, this.opts.decimals, fs[bid], fe[bid]);
-    const a2 = priceToInt(text, this.opts.decimals, fs[ask], fe[ask]);
+    const b2 = priceToInt(text, this.dec, fs[bid], fe[bid]);
+    const a2 = priceToInt(text, this.dec, fs[ask], fe[ask]);
     if (!Number.isFinite(t) || Number.isNaN(b2) || Number.isNaN(a2)) { this.stats.malformed++; return; }
     if (b2 <= 0 || a2 <= 0 || a2 < b2) { this.stats.badPrice++; return; }
 

@@ -406,3 +406,44 @@ export const economicEvents = pgTable("economic_event", {
   primaryKey({ columns: [t.at, t.currency, t.title] }),
   index("economic_event_at_idx").on(t.at),
 ]);
+
+/**
+ * The catalogue of market data files held in object storage.
+ *
+ * The prices themselves do not live in Postgres. A year of gold ticks is ~36
+ * million rows; in a table that is gigabytes, against a 0.5 GB free tier. In R2
+ * the same year is ~150 MB of compressed files (format: docs/30-backtesting.md),
+ * and this table is the index to them: one row per file, a few thousand rows
+ * for a decade.
+ *
+ * `key` carries the content hash, so a re-import never overwrites the object a
+ * reader might be halfway through downloading: the new file gets a new key,
+ * the row is switched to it, and only then is the old object removed.
+ *
+ * Shared across everyone, like price_bar: a gold tick is the same tick for
+ * every trader. Only owners write here.
+ */
+export const marketChunks = pgTable("market_chunk", {
+  /** Normalised, e.g. XAUUSD. */
+  symbol: text("symbol").notNull(),
+  /** tick | m1 | h1 | d1 */
+  resolution: text("resolution").notNull(),
+  /** tick: YYYY-MM-DD · m1: YYYY-MM · h1, d1: YYYY — all UTC. */
+  period: text("period").notNull(),
+  /** Object key in the bucket. */
+  key: text("key").notNull(),
+  sha256: text("sha256").notNull(),
+  /** Ticks or bars in the file. */
+  rows: integer("rows").notNull(),
+  bytes: integer("bytes").notNull(),
+  firstAt: timestamp("first_at", { withTimezone: true }).notNull(),
+  lastAt: timestamp("last_at", { withTimezone: true }).notNull(),
+  /** As the broker spelled it, e.g. XAUUSDm — whose spreads these are. */
+  sourceSymbol: text("source_symbol").notNull(),
+  source: text("source").notNull().default("exness"),
+  formatVersion: integer("format_version").notNull().default(1),
+  importedBy: text("imported_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.symbol, t.resolution, t.period] }),
+]);

@@ -66,6 +66,10 @@ for (const [path, init] of [
   ["/api/fills?from=2026-01-01&to=2026-12-31", {}],
   ["/api/screenshots?id=s-alice", { method: "DELETE" }],
   ["/api/news", { method: "POST", body: "{}", headers: { "content-type": "application/json" } }],
+  ["/api/market/manifest?symbol=XAUUSD&resolution=tick", {}],
+  ["/api/market/upload", { method: "POST", body: "{}", headers: { "content-type": "application/json" } }],
+  ["/api/market/commit", { method: "POST", body: "{}", headers: { "content-type": "application/json" } }],
+  ["/api/market/delete", { method: "POST", body: "{}", headers: { "content-type": "application/json" } }],
 ]) {
   const r = await as(null, path, init);
   check(`${path} refuses a stranger`, r.status === 401, `got ${r.status}`);
@@ -194,6 +198,26 @@ console.log("\nSHARED DATA IS PROTECTED FROM ONE PERSON'S MISTAKE");
 
   const stillThere = await text("alice", "/import?tab=candles");
   check("the candles survived", stillThere.includes("20 candles") || stillThere.includes("candles"));
+
+  // The backtester's tick store: shared to read, owners only to change.
+  const json = (body) => ({ method: "POST", body: JSON.stringify(body), headers: { "content-type": "application/json" } });
+  const meta = {
+    symbol: "XAUUSD", sourceSymbol: "XAUUSDm", resolution: "tick", period: "2026-09-14",
+    sha256: "a".repeat(64), bytes: 10, rows: 1,
+    firstAt: Date.UTC(2026, 8, 14, 1) / 1000, lastAt: Date.UTC(2026, 8, 14, 1) / 1000,
+  };
+  for (const [what, path, body] of [
+    ["ask for an upload link", "/api/market/upload", meta],
+    ["record an upload", "/api/market/commit", meta],
+    ["delete price history", "/api/market/delete", { symbol: "XAUUSD" }],
+  ]) {
+    const r = await as("bob", path, json(body));
+    check(`a non-owner cannot ${what} in the tick store`, r.status === 403 || r.status === 503, `got ${r.status}`);
+  }
+  const bobRead = await as("bob", "/api/market/manifest?symbol=XAUUSD&resolution=tick");
+  check("an invited friend can read the shared tick store", bobRead.status === 200 || bobRead.status === 503, `got ${bobRead.status}`);
+  const bobPage = await text("bob", "/settings/market");
+  check("the import page is not offered to a non-owner", !bobPage.includes("Import tick files") && bobPage.includes("Only an owner"));
 }
 
 console.log("\nONLY AN OWNER SEES OR CHANGES WHO HAS ACCESS");
@@ -201,6 +225,7 @@ console.log("\nONLY AN OWNER SEES OR CHANGES WHO HAS ACCESS");
   const bobSettings = await text("bob", "/settings");
   check("Bob's settings do not name Alice", !bobSettings.includes("alice@example.com"));
   check("Bob's settings do not offer the access panel", !bobSettings.includes("Who can use this"));
+  check("Bob's settings do not offer the price-history import", !bobSettings.includes("Price history for backtesting"));
 
   const aliceSettings = await text("alice", "/settings");
   check("Alice's settings do offer the access panel", aliceSettings.includes("Who can use this"));

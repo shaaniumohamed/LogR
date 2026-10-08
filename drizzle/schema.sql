@@ -228,6 +228,24 @@ CREATE TABLE IF NOT EXISTS "economic_event" (
   CONSTRAINT "economic_event_at_currency_title_pk" PRIMARY KEY ("at", "currency", "title")
 );
 
+CREATE TABLE IF NOT EXISTS "market_chunk" (
+  "symbol" text NOT NULL,
+  "resolution" text NOT NULL,
+  "period" text NOT NULL,
+  "key" text NOT NULL,
+  "sha256" text NOT NULL,
+  "rows" integer NOT NULL,
+  "bytes" integer NOT NULL,
+  "first_at" timestamp with time zone NOT NULL,
+  "last_at" timestamp with time zone NOT NULL,
+  "source_symbol" text NOT NULL,
+  "source" text DEFAULT 'exness' NOT NULL,
+  "format_version" integer DEFAULT 1 NOT NULL,
+  "imported_by" text,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "market_chunk_symbol_resolution_period_pk" PRIMARY KEY ("symbol", "resolution", "period")
+);
+
 -- --------------------------------------------------------------- columns ---
 -- For databases created by an older version of LogR: add what is missing.
 -- Every column here is either nullable or has a default, so adding it to a
