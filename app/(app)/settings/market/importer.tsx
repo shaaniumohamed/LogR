@@ -156,6 +156,19 @@ function FileRow({ f }: { f: FileState }) {
           </span>
         )}
       </div>
+      {r && f.status === "done" && r.notImported.length > 0 && (
+        <p className="mt-1 text-[11.5px]" style={{ color: "var(--loss)" }}>
+          {r.notImported.length} day{r.notImported.length === 1 ? "" : "s"} in the file could not be imported
+          (ticks out of order): {list(r.notImported)}. Please report this.
+        </p>
+      )}
+      {r && f.status === "done" && (
+        <p className="mt-1 text-[11.5px]" style={{ color: r.noTicks.length ? "var(--warn)" : "var(--ink3)" }}>
+          {r.noTicks.length
+            ? <>The file itself has no ticks for {r.noTicks.length} trading day{r.noTicks.length === 1 ? "" : "s"}: {list(r.noTicks)}. These are gaps in Exness&rsquo;s data, not in the import.</>
+            : "Every trading day in the file was imported (weekends and market holidays aside)."}
+        </p>
+      )}
       {r && warnings > 0 && (
         <p className="mt-1 text-[11.5px]" style={{ color: "var(--warn)" }}>
           Skipped {nf.format(warnings)} line{warnings === 1 ? "" : "s"}:
@@ -167,4 +180,9 @@ function FileRow({ f }: { f: FileState }) {
       )}
     </li>
   );
+}
+
+/** A list of days, shortened when it is long. */
+function list(days: string[]) {
+  return days.length <= 12 ? days.join(", ") : `${days.slice(0, 12).join(", ")} and ${days.length - 12} more`;
 }

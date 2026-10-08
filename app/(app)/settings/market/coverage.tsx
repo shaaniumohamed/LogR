@@ -3,10 +3,13 @@
  *
  * One row per month and one square per day, so a missing day stands out as a
  * hole in a row rather than a number in a list. Weekends are expected to be
- * empty; a weekday without data is outlined, because that is the thing an
- * import might have got wrong. 25 December and 1 January are not flagged —
- * gold does not trade then.
+ * empty. A weekday without data is one of two things, drawn differently: a
+ * market holiday (Good Friday, Christmas, New Year — expected, dashed grey),
+ * or a day missing from the files (red), which is the only kind worth chasing.
  */
+import { Info } from "@/components/info";
+import { marketHoliday } from "@/lib/core/market/calendar";
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export function Coverage({ days }: { days: { day: string; ticks: number }[] }) {
@@ -27,14 +30,16 @@ export function Coverage({ days }: { days: { day: string; ticks: number }[] }) {
     <div className="mt-3 space-y-2">
       {years.map((y, i) => {
         const yearDays = days.filter((d) => d.day.startsWith(String(y)));
-        const gaps = months.filter((x) => x.y === y).flatMap(({ m }) => {
+        const empty = months.filter((x) => x.y === y).flatMap(({ m }) => {
           const n = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
           return Array.from({ length: n }, (_, k) => new Date(Date.UTC(y, m, k + 1)))
             .filter((d) => d >= first && d <= last)
             .filter((d) => { const wd = d.getUTCDay(); return wd !== 0 && wd !== 6; })
-            .filter((d) => !isHoliday(d))
-            .filter((d) => !held.has(d.toISOString().slice(0, 10)));
+            .map((d) => d.toISOString().slice(0, 10))
+            .filter((key) => !held.has(key));
         });
+        const gaps = empty.filter((key) => !marketHoliday(key));
+        const holidays = empty.filter((key) => marketHoliday(key));
         return (
           <details key={y} open={i === 0} className="rounded-lg" style={{ border: "1px solid var(--line)" }}>
             <summary className="flex cursor-pointer items-center gap-3 px-3 py-2 text-[13.5px]">
@@ -58,16 +63,20 @@ export function Coverage({ days }: { days: { day: string; ticks: number }[] }) {
                         const wd = d.getUTCDay();
                         const weekend = wd === 0 || wd === 6;
                         const inRange = d >= first && d <= last;
-                        const missing = inRange && !ticks && !weekend && !isHoliday(d);
+                        const holiday = !ticks && !weekend ? marketHoliday(key) : null;
+                        const missing = inRange && !ticks && !weekend && !holiday;
                         const strength = ticks ? Math.min(1, 0.35 + 0.65 * (ticks / typical)) : 0;
                         return (
-                          <span key={k} title={`${key}: ${ticks ? `${ticks.toLocaleString("en-US")} ticks` : weekend ? "weekend" : "no data"}`}
+                          <span key={k}
+                                title={`${key}: ${ticks ? `${ticks.toLocaleString("en-US")} ticks` : weekend ? "weekend" : holiday ? `${holiday} — market closed` : "no data in the files"}`}
                                 className="block h-[9px] w-[9px] rounded-[2px]"
                                 style={ticks
                                   ? { background: `color-mix(in srgb, var(--profit) ${Math.round(strength * 100)}%, var(--s3))` }
                                   : missing
                                     ? { boxShadow: "inset 0 0 0 1.5px var(--loss)" }
-                                    : { background: weekend ? "transparent" : "var(--s3)", opacity: inRange ? 1 : 0.4 }} />
+                                    : holiday && inRange
+                                      ? { outline: "1px dashed var(--ink3)", outlineOffset: "-1px" }
+                                      : { background: weekend ? "transparent" : "var(--s3)", opacity: inRange ? 1 : 0.4 }} />
                         );
                       })}
                     </div>
@@ -75,19 +84,32 @@ export function Coverage({ days }: { days: { day: string; ticks: number }[] }) {
                 );
               })}
               {gaps.length > 0 && gaps.length <= 12 && (
-                <p className="pt-1 text-[11.5px]" style={{ color: "var(--ink3)" }}>
-                  Missing: {gaps.map((d) => d.toISOString().slice(5, 10)).join(", ")}
+                <p className="pt-1 text-[11.5px]" style={{ color: "var(--loss)" }}>
+                  Missing from the files: {gaps.map((key) => key.slice(5)).join(", ")}
+                </p>
+              )}
+              {holidays.length > 0 && (
+                <p className="text-[11.5px]" style={{ color: "var(--ink3)" }}>
+                  Market closed: {holidays.map((key) => `${key.slice(5)} ${marketHoliday(key)}`).join(", ")}
                 </p>
               )}
             </div>
           </details>
         );
       })}
+      <Info title="Red days and dashed days">
+        A <b>dashed</b> day is a market holiday — Good Friday, Christmas or New Year, or the
+        weekday one of them moved to. Gold is shut, so there is nothing to find.
+        <br /><br />
+        A <b>red</b> day was a normal trading day with no ticks in the files. The import report
+        says whether the file itself had none (open the year again and import the same file: it
+        re-reads it and uploads nothing that is already held). If Exness offers that month as a
+        separate download, importing it fills only the missing days. If not, leave it: a handful
+        of days in eleven years does not change a backtest, and the replay treats a missing day
+        like a closed market. Prices from another broker would not match Exness&rsquo;s, so they
+        are better left out.
+      </Info>
     </div>
   );
 }
 
-function isHoliday(d: Date) {
-  const md = d.toISOString().slice(5, 10);
-  return md === "12-25" || md === "01-01";
-}

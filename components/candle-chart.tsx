@@ -11,6 +11,7 @@ import { HIGHER_TIMEFRAMES, higherTimeframe, MINUTE_TIMEFRAMES } from "@/lib/cor
 import { priceDecimals } from "@/lib/core/instrument";
 import { createChartHandle, type ChartHandle } from "@/lib/chart/handle";
 import { PriceBand } from "@/lib/chart/price-band";
+import { ChartLegend } from "@/components/chart/chart-legend";
 
 export interface Fill {
   kind: "in" | "out";
@@ -81,6 +82,9 @@ export function CandleChart({
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const priceLineRef = useRef<IPriceLine | null>(null);
   const bandRef = useRef<PriceBand | null>(null);
+  // For the O/H/L/C readout, which needs the chart once it exists and a nudge when the candles change.
+  const [legend, setLegend] = useState<{ chart: IChartApi; series: ISeriesApi<"Candlestick"> } | null>(null);
+  const [dataVersion, setDataVersion] = useState(0);
   const [sel, setSel] = useState<string>(() => `m${pickMinuteTimeframe(bars.length)}`);
 
   const decimals = useMemo(() => priceDecimals(symbol), [symbol]);
@@ -203,6 +207,7 @@ export function CandleChart({
 
     const { handle, dispose } = createChartHandle(chart, series, el);
     onReadyRef.current?.(handle);
+    setLegend({ chart, series });
 
     return () => {
       ro.disconnect();
@@ -210,6 +215,7 @@ export function CandleChart({
       dispose();
       onReadyRef.current?.(null);
       chart.remove();
+      setLegend(null);
       chartRef.current = null; seriesRef.current = null;
       markersRef.current = null; priceLineRef.current = null; bandRef.current = null;
     };
@@ -316,6 +322,7 @@ export function CandleChart({
     } else {
       chart.timeScale().fitContent();
     }
+    setDataVersion((v) => v + 1);
   }, [view, fills, invalidation, tradeFrom, tradeTo]);
 
   const Button = ({ id, label }: { id: string; label: string }) => (
@@ -355,6 +362,10 @@ export function CandleChart({
         {/* isolate: the chart layers its canvases with z-indexes of its own,
             which must stay below the page's sheets and menus. */}
         <div ref={wrapRef} className={fill ? "absolute inset-0 isolate overflow-hidden" : "isolate w-full"} />
+        {legend && (
+          <ChartLegend chart={legend.chart} candles={legend.series} decimals={decimals} version={dataVersion}
+                       title={`${symbol} · ${sel.startsWith("m") ? `${sel.slice(1)}m` : higherTimeframe(sel)?.label ?? sel}`} />
+        )}
       </div>
     </div>
   );

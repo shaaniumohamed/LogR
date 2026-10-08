@@ -1,96 +1,49 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  CandlestickSeries, ColorType, HistogramSeries, createChart,
-  type IChartApi, type ISeriesApi, type UTCTimestamp,
-} from "lightweight-charts";
+import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { Card, Eyebrow, Note } from "@/components/ui";
-import { timeframes, toCandles, type Timeframe } from "@/lib/core/market/bars";
-import { loadCandles, loadTickDay } from "@/lib/market/client";
+import { Info } from "@/components/info";
+import { timeframes, type Timeframe } from "@/lib/core/market/bars";
+import { priceDecimals } from "@/lib/core/instrument";
+import { loadTickDay } from "@/lib/market/client";
+import type { MarketChartStatus } from "@/components/market/market-chart";
 
-const DAY = 86_400;
-
-function cssVar(name: string, fallback: string) {
-  if (typeof window === "undefined") return fallback;
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
-}
-
-/** How much history each timeframe shows around the chosen day. */
-function windowFor(tf: Timeframe, daySec: number, first: number, last: number): [number, number] {
-  if (tf.seconds < 3_600) return [daySec - 2 * DAY, daySec + DAY];
-  if (tf.seconds < DAY) return [daySec - 90 * DAY, daySec + 7 * DAY];
-  return [first, last + DAY];
-}
+// The chart touches the canvas when it is built, so it only runs in the browser.
+const MarketChart = dynamic(() => import("@/components/market/market-chart").then((m) => m.MarketChart), {
+  ssr: false,
+  loading: () => <div className="h-[420px] animate-pulse rounded-lg" style={{ background: "var(--s3)" }} />,
+});
 
 /**
  * The stored history on a chart, at every timeframe the backtester will offer.
  *
  * This is the check that an import worked: candles where they should be, no
- * holes, volume and spread that look like gold. It also shows how long a load
- * took and how much came from this device's own cache, which is the number the
- * replay will live or die by.
+ * holes, volume and spread that look like gold. It scrolls through the whole
+ * history like TradingView, and says how long each load took and how much came
+ * from this device's own cache — the numbers the replay lives or dies by.
  */
-export function Preview({ symbol, first, last }: { symbol: string; first: string; last: string }) {
+export function Preview({ symbol, first, last, timeZone }: { symbol: string; first: string; last: string; timeZone: string }) {
   const tfs = useMemo(() => timeframes(), []);
-  const [tf, setTf] = useState<Timeframe>(() => tfs[2]); // 5m
+  const [tf, setTf] = useState<Timeframe>(() => tfs[5]); // 30m
   const [day, setDay] = useState(last);
-  const [status, setStatus] = useState<string>("");
+  const [goTo, setGoTo] = useState<{ time: number } | null>(null);
+  const [status, setStatus] = useState<MarketChartStatus | null>(null);
   const [dayInfo, setDayInfo] = useState<string>("");
-  const wrap = useRef<HTMLDivElement>(null);
-  const chart = useRef<IChartApi | null>(null);
-  const candles = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const volume = useRef<ISeriesApi<"Histogram"> | null>(null);
 
-  useEffect(() => {
-    const el = wrap.current;
-    if (!el) return;
-    const c = createChart(el, {
-      autoSize: true,
-      layout: { background: { type: ColorType.Solid, color: "transparent" }, textColor: cssVar("--ink3", "#888"), fontSize: 10, attributionLogo: false },
-      grid: { vertLines: { color: cssVar("--line", "#0001") }, horzLines: { color: cssVar("--line", "#0001") } },
-      timeScale: { timeVisible: true, secondsVisible: false, borderColor: cssVar("--line", "#0001") },
-      rightPriceScale: { borderColor: cssVar("--line", "#0001") },
-    });
-    candles.current = c.addSeries(CandlestickSeries, {
-      upColor: cssVar("--profit", "#1baf7a"), downColor: cssVar("--loss", "#e34948"), borderVisible: false,
-      wickUpColor: cssVar("--profit", "#1baf7a"), wickDownColor: cssVar("--loss", "#e34948"),
-      priceFormat: { type: "price", precision: 2, minMove: 0.01 },
-    });
-    // Tick volume in a pane of its own, the way MT5 shows it under the price.
-    volume.current = c.addSeries(HistogramSeries, { color: cssVar("--ink3", "#888"), priceFormat: { type: "volume" } }, 1);
-    c.panes()[1]?.setHeight(70);
-    chart.current = c;
-    return () => { c.remove(); chart.current = null; };
-  }, []);
-
-  useEffect(() => {
-    let live = true;
-    const daySec = Date.parse(`${day}T00:00:00Z`) / 1000;
-    if (!Number.isFinite(daySec)) return;
-    const [from, to] = windowFor(tf, daySec, Date.parse(`${first}T00:00:00Z`) / 1000, Date.parse(`${last}T00:00:00Z`) / 1000);
-    setStatus("Loading…");
-    const t0 = performance.now();
-    loadCandles(symbol, tf, from, to).then(({ bars, stats }) => {
-      if (!live) return;
-      const ms = Math.round(performance.now() - t0);
-      if (!bars) { candles.current?.setData([]); volume.current?.setData([]); setStatus("No data held for this span."); return; }
-      const cs = toCandles(bars);
-      candles.current?.setData(cs.map((x) => ({ time: x.time as UTCTimestamp, open: x.open, high: x.high, low: x.low, close: x.close })));
-      volume.current?.setData(cs.map((x) => ({ time: x.time as UTCTimestamp, value: x.volume })));
-      chart.current?.timeScale().fitContent();
-      setStatus(`${cs.length.toLocaleString("en-US")} candles in ${ms} ms · ${stats.files} file${stats.files === 1 ? "" : "s"}, ${stats.fromCache} from this device${stats.bytes ? `, ${(stats.bytes / 1e6).toFixed(1)} MB downloaded` : ""}`);
-    }).catch((e) => live && setStatus(e instanceof Error ? e.message : "Could not load."));
-    return () => { live = false; };
-  }, [symbol, tf, day, first, last]);
+  // When MT5's day starts on the trader's clock, for the note under the chart.
+  const dayOpens = useMemo(() => new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone })
+    .format(new Date(Date.UTC(2026, 0, 15))), [timeZone]);
 
   // The chosen day's ticks: count and spread, a quick read on data quality.
   useEffect(() => {
     let live = true;
     const daySec = Date.parse(`${day}T00:00:00Z`) / 1000;
     setDayInfo("");
+    if (!Number.isFinite(daySec)) return;
     loadTickDay(symbol, daySec).then(({ ticks }) => {
-      if (!live || !ticks) return;
+      if (!live) return;
+      if (!ticks) { setDayInfo(`${day}: no ticks held for this day.`); return; }
       let sum = 0, max = 0;
       for (let i = 0; i < ticks.count; i++) { const s = ticks.ask[i] - ticks.bid[i]; sum += s; if (s > max) max = s; }
       const k = 10 ** ticks.decimals;
@@ -99,13 +52,29 @@ export function Preview({ symbol, first, last }: { symbol: string; first: string
     return () => { live = false; };
   }, [symbol, day]);
 
+  const statusLine = status && (status.error
+    ? <span style={{ color: "var(--loss)" }}>{status.error}</span>
+    : <>
+        {status.candles.toLocaleString("en-US")} candles held{status.span ? ` (${status.span[0]} → ${status.span[1]})` : ""} · last load {status.ms} ms
+        {" · "}{status.files} file{status.files === 1 ? "" : "s"} read, {status.fromCache} from this device
+        {status.bytes ? `, ${(status.bytes / 1e6).toFixed(1)} MB downloaded` : ""}
+      </>);
+
   return (
     <Card>
       <Eyebrow>Check it on a chart</Eyebrow>
-      <Note>Times are UTC. Pick a day and a timeframe; the same files will feed the backtester.</Note>
+      <Note>Drag to scroll back through the whole history; more loads as you go. Hover a candle to read it — on a phone, press and hold.</Note>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <input type="date" value={day} min={first} max={last} onChange={(e) => e.target.value && setDay(e.target.value)}
-               className="rounded-lg px-2.5 py-1.5 text-[13px]" style={{ background: "var(--s1)", border: "1px solid var(--line)", color: "var(--ink)" }} />
+        <label className="flex items-center gap-2 text-[12.5px]" style={{ color: "var(--ink2)" }}>
+          Go to
+          <input type="date" value={day} min={first} max={last}
+                 onChange={(e) => {
+                   if (!e.target.value) return;
+                   setDay(e.target.value);
+                   setGoTo({ time: Date.parse(`${e.target.value}T12:00:00Z`) / 1000 });
+                 }}
+                 className="rounded-lg px-2.5 py-1.5 text-[13px]" style={{ background: "var(--s1)", border: "1px solid var(--line)", color: "var(--ink)" }} />
+        </label>
         <div className="seg flex-wrap" role="group" aria-label="Timeframe">
           {tfs.map((t) => (
             <button key={t.key} type="button" aria-pressed={t.key === tf.key} onClick={() => setTf(t)} className="!px-2 !py-1 !text-[12px]">
@@ -114,9 +83,16 @@ export function Preview({ symbol, first, last }: { symbol: string; first: string
           ))}
         </div>
       </div>
-      <div ref={wrap} className="mt-3 h-[340px] w-full" />
-      <p className="num mt-2 text-[12px]" style={{ color: "var(--ink3)" }}>{status}</p>
+      <div className="mt-3">
+        <MarketChart symbol={symbol} tf={tf} timeZone={timeZone} decimals={priceDecimals(symbol)} goTo={goTo} height={420} onStatus={setStatus} />
+      </div>
+      <p className="num mt-2 text-[12px]" style={{ color: "var(--ink3)" }}>{statusLine}</p>
       {dayInfo && <p className="num text-[12px]" style={{ color: "var(--ink3)" }}>{dayInfo}</p>}
+      <Info title="Times on this chart">
+        Times are shown on your own clock. Candles open and close on the broker&rsquo;s MT5 server
+        time (UTC), exactly as they do in MT5, so a daily candle starts at {dayOpens} your time.
+        The volume is the number of price changes in each candle — MT5&rsquo;s tick volume.
+      </Info>
     </Card>
   );
 }

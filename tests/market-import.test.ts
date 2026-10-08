@@ -146,3 +146,42 @@ describe("runImport", () => {
     await expect(runImport({ source: zipOf("a.csv", csv(FROM, TO)), api: s.api })).rejects.toThrow(/network down/);
   });
 });
+
+describe("days at the edges and gaps in the source", () => {
+  const day = (y: number, m: number, d: number, h = 0) => Date.UTC(y, m - 1, d, h);
+
+  it("keeps the last day of a month and the days either side of it", async () => {
+    const s = fakeStore();
+    // Fri 27 Sep 2024 → Wed 2 Oct 2024, through the weekend and the month end.
+    const r = await runImport({ source: zipOf("XAUUSDm_2024.csv", csv(day(2024, 9, 27), day(2024, 10, 2), 60)), api: s.api });
+    for (const d of ["2024-09-27", "2024-09-30", "2024-10-01"]) expect(s.catalogue.has(`tick:${d}`)).toBe(true);
+    expect(r.noTicks).toEqual([]);
+    expect(r.notImported).toEqual([]);
+    expect(s.catalogue.has("m1:2024-09") && s.catalogue.has("m1:2024-10")).toBe(true);
+  });
+
+  it("reads every file in a zip that holds one per month, losing no day", async () => {
+    const s = fakeStore();
+    const zip = new Blob([zipSync({
+      "XAUUSDm_2024_09.csv": strToU8(csv(day(2024, 9, 26), day(2024, 10, 1), 60)),
+      "XAUUSDm_2024_10.csv": strToU8(csv(day(2024, 10, 1), day(2024, 10, 4), 60)),
+    }) as BlobPart]);
+    const r = await runImport({ source: zip, api: s.api });
+    for (const d of ["2024-09-26", "2024-09-27", "2024-09-30", "2024-10-01", "2024-10-02", "2024-10-03"]) {
+      expect(s.catalogue.has(`tick:${d}`), d).toBe(true);
+    }
+    expect(r.notImported).toEqual([]);
+    expect(r.parse.malformed).toBe(0);
+  });
+
+  it("names a weekday the file has no ticks for, and leaves market holidays out", async () => {
+    const s = fakeStore();
+    // Mon 25 Mar → Tue 2 Apr 2024 with Wednesday 27 March missing; Good Friday (29th) is empty too.
+    const text = csv(day(2024, 3, 25), day(2024, 3, 27), 120)
+      + csv(day(2024, 3, 28), day(2024, 3, 29), 120, false)
+      + csv(day(2024, 3, 31, 22), day(2024, 4, 3), 120, false);
+    const r = await runImport({ source: zipOf("XAUUSDm_2024.csv", text), api: s.api });
+    expect(r.noTicks).toEqual(["2024-03-27"]);
+    expect(r.notImported).toEqual([]);
+  });
+});

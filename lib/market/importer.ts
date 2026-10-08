@@ -6,6 +6,7 @@ import { filterBars, mergeBars, mergeTicks } from "@/lib/core/market/merge";
 import { gunzip, gzip, sha256Hex } from "@/lib/core/market/bytes";
 import { periodOf, type Resolution } from "@/lib/core/market/periods";
 import { normalizeSymbol } from "@/lib/core/symbols";
+import { marketHoliday } from "@/lib/core/market/calendar";
 
 /**
  * Importing a tick history file into the market data store.
@@ -32,6 +33,11 @@ export interface ManifestChunk {
   sha256: string;
   url: string;
   rows: number;
+  bytes?: number;
+  /** Epoch seconds of the first and last row. */
+  firstAt?: number;
+  lastAt?: number;
+  sourceSymbol?: string;
 }
 
 export interface ChunkDescription {
@@ -77,6 +83,14 @@ export interface ImportReport extends ImportProgress {
   reordered: number;
   firstDay: string | null;
   lastDay: string | null;
+  /**
+   * Weekdays inside the file's own date range on which the file has no ticks
+   * at all (market holidays left out). These are gaps in the source, not in
+   * the import: nothing here was dropped.
+   */
+  noTicks: string[];
+  /** Days that had ticks in the file but were not imported — should always be empty. */
+  notImported: string[];
 }
 
 export interface ImportOptions {
@@ -159,6 +173,7 @@ export async function runImport(opts: ImportOptions): Promise<ImportReport> {
   let symbol = "", sourceSymbol = "", decimals = 3;
   let firstDay: string | null = null, lastDay: string | null = null;
   let reordered = 0;
+  const importedDays = new Set<string>();
 
   // The month and year being assembled.
   let month: string | null = null;
@@ -194,6 +209,7 @@ export async function runImport(opts: ImportOptions): Promise<ImportReport> {
 
     monthBars.push(ticksToM1(ticks));
     monthDays.add(ticks.dayStart);
+    importedDays.add(day.day);
     progress.days++;
     progress.currentDay = day.day;
     firstDay ??= day.day;
@@ -252,6 +268,10 @@ export async function runImport(opts: ImportOptions): Promise<ImportReport> {
   let acc: TickDayAccumulator | null = null;
   const ready: TickDay[] = [];
   let firstEmitted = true;
+  // Every UTC day the file has at least one tick for, whether or not it was
+  // imported — so the report can tell a gap in the file from a dropped day.
+  const seenDays = new Set<number>();
+  let lastSeenDay = -1;
   const parser = new ExnessTickParser({
     decimalsFor: (s) => storageDecimals(s ?? "XAUUSD"),
     onTick: (t, b, a) => {
@@ -263,6 +283,8 @@ export async function runImport(opts: ImportOptions): Promise<ImportReport> {
         progress.sourceSymbol = sourceSymbol;
         acc = new TickDayAccumulator({ symbol, decimals, onDay: (d) => { ready.push(d); } });
       }
+      const d = Math.floor(t / 86_400_000);
+      if (d !== lastSeenDay) { seenDays.add(d); lastSeenDay = d; }
       acc.add(t, b, a);
     },
   });
@@ -336,6 +358,7 @@ export async function runImport(opts: ImportOptions): Promise<ImportReport> {
 
   progress.phase = "done";
   report(true);
+  const { noTicks, notImported } = dayGaps(seenDays, importedDays);
   return {
     ...progress,
     parse: { ...parser.stats },
@@ -343,7 +366,24 @@ export async function runImport(opts: ImportOptions): Promise<ImportReport> {
     reordered,
     firstDay,
     lastDay,
+    noTicks,
+    notImported,
   };
+}
+
+/** Which weekdays in the file's span it has no ticks for, and which it had but were not imported. */
+export function dayGaps(seen: Set<number>, imported: Set<string>): { noTicks: string[]; notImported: string[] } {
+  if (!seen.size) return { noTicks: [], notImported: [] };
+  const days = [...seen].sort((a, b) => a - b);
+  const key = (d: number) => new Date(d * 86_400_000).toISOString().slice(0, 10);
+  const noTicks: string[] = [];
+  for (let d = days[0]; d <= days[days.length - 1]; d++) {
+    const wd = new Date(d * 86_400_000).getUTCDay();
+    if (wd === 0 || wd === 6 || seen.has(d)) continue;
+    const k = key(d);
+    if (!marketHoliday(k)) noTicks.push(k);
+  }
+  return { noTicks, notImported: days.map(key).filter((k) => !imported.has(k)) };
 }
 
 /* --------------------------------------------------------- the real server */

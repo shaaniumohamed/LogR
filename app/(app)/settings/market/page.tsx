@@ -75,7 +75,7 @@ export default async function MarketData() {
             <Note>Each square is one UTC day. Darker means more ticks. A red outline is a weekday with no data.</Note>
             <Coverage days={days} />
           </Card>
-          <Preview symbol={main.symbol} first={day(main.first)} last={day(main.last)} />
+          <Preview symbol={main.symbol} first={day(main.first)} last={day(main.last)} timeZone={ctx.timeZone} />
           <RemoveData symbol={main.symbol} years={years} />
         </>
       )}
