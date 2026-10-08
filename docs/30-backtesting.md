@@ -83,9 +83,12 @@ app already uses. Its input layer is already built on pointer events, so touch
 half-works; a touch layer around it (see the trial below) gives it what touch
 needs: finger-sized hit areas, `touch-action` control, a
 precision cursor that sits above the finger, double-tap and long-press
-equivalents, two-finger pass-through to pinch-zoom, frame-coalesced redraws,
-and a bodies-only magnet for MSNR. The host adds undo/redo, toolbars, an
-object list and templates. The journal's trade chart moves to the same engine.
+equivalents, two-finger pass-through to pinch-zoom and frame-coalesced redraws.
+The magnet is the kit's own and behaves like TradingView's: it snaps to the
+candle's open, high, low or close — body edges and wick tips alike — weak
+within 50 px, strong always (decided 8 Oct 2026; a bodies-only magnet was
+considered and dropped). The host adds undo/redo, toolbars, an object list and
+templates. The journal's trade chart moves to the same engine.
 
 #### Trial results (kit 0.5.0, 8 Oct 2026)
 
@@ -167,8 +170,7 @@ if one is not accepted in time.
   allowed, as on TradingView.
 
 Not done yet, and why: saved style templates (milestone 3, with the replay
-workspace's layouts), the bodies-only magnet (needs a hook in the kit; to be
-proposed upstream), and finger-sized hit areas inside the kit (the magnifier
+workspace's layouts), and finger-sized hit areas inside the kit (the magnifier
 covers precision; hit tolerance is the kit's).
 
 ### Simulation: tick-exact, deterministic, and shaped like the journal
