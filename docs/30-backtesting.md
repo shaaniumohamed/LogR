@@ -64,12 +64,61 @@ public repository. LogR is invite-only and its repository is public.
 [lightweight-charts-drawing](https://github.com/deepentropy/lightweight-charts-drawing)
 (MIT) provides 86 TradingView-style tools on lightweight-charts v5, which this
 app already uses. Its input layer is already built on pointer events, so touch
-half-works; it is vendored into `vendor/` (licence and source commit kept) and
-given what touch needs: finger-sized hit areas, `touch-action` control, a
+half-works; a touch layer around it (see the trial below) gives it what touch
+needs: finger-sized hit areas, `touch-action` control, a
 precision cursor that sits above the finger, double-tap and long-press
 equivalents, two-finger pass-through to pinch-zoom, frame-coalesced redraws,
 and a bodies-only magnet for MSNR. The host adds undo/redo, toolbars, an
 object list and templates. The journal's trade chart moves to the same engine.
+
+#### Trial results (kit 0.5.0, 8 Oct 2026)
+
+Every tool was placed by script on a synthetic gold chart, once with a mouse at
+1280 px and once by touch on a 390 px phone viewport.
+
+| Check | Mouse | Touch, kit as shipped | Touch, with the touch layer |
+|---|---|---|---|
+| Tools placed (of 83 that need no host input*) | 83 | 77 | 83 |
+| Tap selects a drawing, drag moves it | yes | yes | yes |
+| Chart still pans when nothing is armed | yes | yes | yes |
+| Press, slide, lift places the point where the finger lifts | — | — | yes |
+
+\* Image, table and font icon wait for the host to supply a file, cells or a
+glyph; they are wired up with the rest of the host UI.
+
+What failed by touch, and the fix each needs (all host-side, no fork):
+
+- **Brush and highlighter** — the browser claims the drag as a scroll and
+  sends `pointercancel`. Fix: `touch-action: none` on the chart while a tool is
+  armed (confirmed).
+- **Finishing a polyline or path** — the kit finishes on double-click, which
+  a double-tap does not reliably produce. Fix: the touch layer recognises the
+  double-tap itself and sends the kit a double-click, plus a Done button.
+- **Precision** — the kit has no notion of a finger hiding the point. Fix:
+  hold the press back while a tool is armed, show a magnifier above the
+  finger, and replay the press where the finger lifts (confirmed: the kit
+  accepts replayed events and places the point at the lift position).
+
+Panning frame times (no GPU in the test machine, so absolute numbers are
+pessimistic; the comparison is what matters):
+
+| Drawings on screen | 1280 px median / p95 | 390 px median / p95 |
+|---|---|---|
+| 0 | 16.6 / 18.1 ms | 16.6 / 18.8 ms |
+| 20 | 17.5 / 24.1 ms | 16.6 / 21.8 ms |
+| 100 heavy (fibs, channels, position boxes) | 51.8 / 71.8 ms | 38.3 / 57.5 ms |
+
+Of the 100-drawing frame, 52% is rasterising pixels (software here), 22% the
+kit's JavaScript and 12% the chart's. The kit's hottest function rebuilds a
+number formatter on every call (`toLocaleString` with options, in the
+position tools' labels) — a cached `Intl.NumberFormat` removes it; offered
+upstream. Typical charts carry 10–40 drawings, which stay at 60 fps.
+
+**Decision:** depend on the published package, pinned to an exact version,
+rather than vendoring a fork — it is releasing several times a week and a fork
+would fall behind at once. The touch layer wraps it from outside. Fixes the
+kit itself needs go upstream as pull requests; a patch is applied locally only
+if one is not accepted in time.
 
 ### Simulation: tick-exact, deterministic, and shaped like the journal
 
@@ -168,7 +217,7 @@ Every `bt_*` row is scoped to its user and covered by both isolation suites.
 |---|---|---|
 | 0 | R2 set up (owner); this document | — |
 | 1 | Market data: parser, formats, candles, streaming import worker, signed upload/read routes, IndexedDB cache, coverage calendar | 2015–2026 imported; any day opens from cache in under a second |
-| 2 | Chart engine on the vendored kit: touch work, undo/redo, toolbars, object list; journal chart migrated | All 86 tools usable with mouse and finger |
+| 2 | Chart engine on the drawing kit: touch layer, undo/redo, toolbars, object list; journal chart migrated | All 86 tools usable with mouse and finger |
 | 3 | Replay workspace: strategies, sessions, clock, all timeframes, jumps, line/candles, volume, indicators, session boxes, news, resume | Replay any date on laptop and iPhone |
 | 4 | Simulated broker: ticket, orders, chart lines, partials, breakeven, trailing, ladders, position tool, costs | Golden-scenario tests pass; trades play out tick-exact |
 | 5 | Backtest journal and analytics: write-ups, screenshots, dashboards, R statistics, exit what-ifs, backtest vs live | Owner-only flag removed |
