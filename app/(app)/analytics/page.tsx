@@ -23,7 +23,7 @@ import { zoneName } from "@/lib/timezones";
 import { BarChart, Heatmap, Histogram, type BarRow } from "@/components/charts";
 import { Card, Empty, Eyebrow, Note, Stat, StatGrid, Verdict, count, money, money0, pct } from "@/components/ui";
 import type { ZoneTrade } from "@/lib/core/types";
-import { drawingBand } from "@/lib/core/drawings";
+import { drawingBands } from "@/lib/core/drawings-doc";
 
 export const dynamic = "force-dynamic";
 
@@ -323,10 +323,9 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
    * unrelated ones, which is the case a level trader most wants to see.
    */
   const marks: Mark[] = trades.flatMap((t) =>
-    (byHash.get(t.id)?.drawings ?? []).flatMap((d) => {
-      const b = drawingBand(d);
-      return b ? [{ tradeId: t.id, low: b.low, high: b.high, label: d.label, netPnl: t.netPnl, at: t.closedAt }] : [];
-    }));
+    drawingBands(byHash.get(t.id)?.drawings).map((b) => ({
+      tradeId: t.id, low: b.low, high: b.high, label: b.label, netPnl: t.netPnl, at: t.closedAt,
+    })));
   const levels = clusterLevels(marks).filter((l) => l.trades >= 3).slice(0, 8);
 
   /*

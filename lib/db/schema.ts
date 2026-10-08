@@ -3,7 +3,7 @@ import {
   real, text, timestamp, uniqueIndex, varchar,
 } from "drizzle-orm/pg-core";
 import type { AdapterAccountType } from "next-auth/adapters";
-import type { Drawing } from "@/lib/core/types";
+import type { StoredDrawings } from "@/lib/core/drawings-doc";
 
 /* ------------------------------------------------------------------ auth.js */
 export const users = pgTable("user", {
@@ -181,7 +181,7 @@ export const tradeAnnotations = pgTable("trade_annotation", {
    * band with a name, and a table per shape would be four tables holding the
    * same two numbers. See Drawing in lib/core/types.ts for the shape.
    */
-  drawings: jsonb("drawings").$type<Drawing[]>(),
+  drawings: jsonb("drawings").$type<StoredDrawings>(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [uniqueIndex("annotation_identity_idx").on(t.accountId, t.identityHash)]);
 

@@ -1,17 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CandlestickSeries, ColorType, CrosshairMode, LineStyle, TickMarkType, createChart, createSeriesMarkers,
   type IChartApi, type IPriceLine, type ISeriesApi, type ISeriesMarkersPluginApi,
-  type MouseEventParams, type SeriesMarker, type Time, type UTCTimestamp,
+  type SeriesMarker, type Time, type UTCTimestamp,
 } from "lightweight-charts";
 import { aggregate, type Candle } from "@/lib/core/parse-candles";
 import { HIGHER_TIMEFRAMES, higherTimeframe, MINUTE_TIMEFRAMES } from "@/lib/core/timeframes";
 import { priceDecimals } from "@/lib/core/instrument";
-import type { Drawing } from "@/lib/core/types";
-import { indexToTime, magnet, timeToIndex } from "@/lib/core/drawings";
-import { DrawingLayer, type Geom, type NewDrawing, type Tool } from "@/components/chart-drawings";
+import { createChartHandle, type ChartHandle } from "@/lib/chart/handle";
+import { PriceBand } from "@/lib/chart/price-band";
 
 export interface Fill {
   kind: "in" | "out";
@@ -21,8 +20,6 @@ export interface Fill {
   lots: number;
   profit: number;
 }
-
-export type { NewDrawing, Tool } from "@/components/chart-drawings";
 
 const DAY = 86_400;
 
@@ -46,13 +43,13 @@ function cssVar(name: string, fallback: string) {
  * Switching to a higher timeframe re-centres rather than showing everything
  * loaded: a daily chart of thirteen years with one entry on it is not a review.
  *
- * Mark-up is drawn in a layer over the canvas rather than as chart objects
- * (see chart-drawings.tsx). Keeping it in the DOM means it can carry real text,
- * be tapped and dragged like anything else on the page, and be styled with the
- * same tokens — so a theme change recolours drawings along with everything else.
+ * The chart draws nothing the trader made. It hands itself out through
+ * `onReady`, and the drawing kit (components/chart/drawing-system.tsx) attaches
+ * to it; `onTimeframe` says which timeframe is showing, for drawings that are
+ * set to appear only on some.
  */
 export function CandleChart({
-  bars, htf = {}, fills, timeZone, symbol, drawings, tool = null, onCreate, onDraft, selected = null, onSelect, onMove,
+  bars, htf = {}, fills, timeZone, symbol, onReady, onTimeframe,
   zoneFromFills, invalidation, tradeFrom, tradeTo, height = 320, fill = false,
 }: {
   bars: Candle[];
@@ -61,16 +58,10 @@ export function CandleChart({
   fills: Fill[];
   timeZone: string;
   symbol: string;
-  drawings: Drawing[];
-  /** The drawing tool in hand, if any. Taps on the chart place it. */
-  tool?: Tool | null;
-  onCreate?: (d: NewDrawing) => void;
-  /** Whether the first tap of a two-tap drawing is down, so the hint can move on. */
-  onDraft?: (placed: boolean) => void;
-  selected?: string | null;
-  onSelect?: (id: string | null) => void;
-  /** A drawing was dragged to a new place. Called once, when the finger lifts. */
-  onMove?: (d: Drawing) => void;
+  /** The chart, once it exists; null just before it is removed. */
+  onReady?: (handle: ChartHandle | null) => void;
+  /** The timeframe on screen: "m1", "m5", … for minutes, "1h", "4h", "1day", "1week" above. */
+  onTimeframe?: (key: string) => void;
   /** The band the ladder actually filled into. Always shown; not a drawing. */
   zoneFromFills: { low: number; high: number };
   invalidation: number | null;
@@ -89,12 +80,8 @@ export function CandleChart({
   // rather than replace them.
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const priceLineRef = useRef<IPriceLine | null>(null);
+  const bandRef = useRef<PriceBand | null>(null);
   const [sel, setSel] = useState<string>(() => `m${pickMinuteTimeframe(bars.length)}`);
-  // Where prices and times sit on screen, recomputed whenever the scale moves.
-  const [geom, setGeom] = useState<Geom | null>(null);
-  // The first tap of a two-tap drawing, and where the pointer is now, for the preview.
-  const [draft, setDraft] = useState<{ t: number; p: number } | null>(null);
-  const [hover, setHover] = useState<{ t: number; p: number } | null>(null);
 
   const decimals = useMemo(() => priceDecimals(symbol), [symbol]);
 
@@ -128,46 +115,6 @@ export function CandleChart({
     };
   }, [sel, bars, htf]);
 
-  const times = useMemo(() => view.data.map((c) => c.time), [view]);
-  // Read by callbacks the chart holds on to, which would otherwise see the view
-  // as it was when they were subscribed.
-  const viewRef = useRef({ view, times });
-  viewRef.current = { view, times };
-
-  /*
-   * Screen geometry for the drawing layer.
-   *
-   * The library only converts whole candle indexes to pixels (a fractional one
-   * comes back as zero), so the layout is read off two neighbouring candles and
-   * extended linearly — the time axis is evenly spaced by index, so that is
-   * exact, and it works for times beyond either end of the loaded candles.
-   */
-  const buildGeom = useCallback((): Geom | null => {
-    const c = chartRef.current, s = seriesRef.current;
-    const { view: v, times: ts } = viewRef.current;
-    if (!c || !s || !ts.length) return null;
-    const ts0 = c.timeScale();
-    const x0 = ts0.logicalToCoordinate(0 as never);
-    const x1 = ts0.logicalToCoordinate(1 as never);
-    if (x0 === null || x1 === null) return null;
-    const spacing = x1 - x0 || 1;
-    const idx = (x: number) => (x - x0) / spacing;
-    const pane = c.paneSize(0);
-    return {
-      rightPad: c.priceScale("right").width(),
-      paneW: pane.width,
-      paneH: pane.height,
-      spacing,
-      x: (t: number) => x0 + timeToIndex(ts, v.bucket, t) * spacing,
-      y: (p: number) => s.priceToCoordinate(p),
-      idx,
-      price: (y: number) => { const p = s.coordinateToPrice(y); return p === null ? null : Number(p); },
-      time: (i: number) => indexToTime(ts, v.bucket, i),
-      tIdx: (t: number) => timeToIndex(ts, v.bucket, t),
-      bar: (i: number) => v.data[Math.round(i)],
-    };
-  }, []);
-
   // A selection can stop being offered when the data behind it changes.
   useEffect(() => {
     const ok = sel.startsWith("m")
@@ -191,6 +138,13 @@ export function CandleChart({
 
   const fillRef = useRef(fill);
   fillRef.current = fill;
+  const zoneRef = useRef(zoneFromFills);
+  zoneRef.current = zoneFromFills;
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  const onTimeframeRef = useRef(onTimeframe);
+  onTimeframeRef.current = onTimeframe;
+  useEffect(() => { onTimeframeRef.current?.(sel); }, [sel]);
 
   /* Create the chart once. Data, markers and colours are applied separately so a
      timeframe change or a theme change never tears the chart down and back up. */
@@ -214,7 +168,9 @@ export function CandleChart({
       rightPriceScale: { borderColor: cssVar("--line", "rgba(0,0,0,.08)"), scaleMargins: { top: 0.12, bottom: 0.12 } },
       timeScale: { borderColor: cssVar("--line", "rgba(0,0,0,.08)"), timeVisible: true, secondsVisible: false },
       crosshair: { mode: CrosshairMode.Normal },
-      handleScale: { axisPressedMouseMove: { time: true, price: false } },
+      // Dragging the price axis stretches it, as on TradingView — a fib drawn to
+      // an extreme needs the extreme on screen. Double-click the axis to reset.
+      handleScale: { axisPressedMouseMove: { time: true, price: true } },
     });
 
     const series = chart.addSeries(CandlestickSeries, {
@@ -229,34 +185,33 @@ export function CandleChart({
     chartRef.current = chart;
     seriesRef.current = series;
 
-    // Coalesced to one measurement a frame: a pan fires the range callback on
-    // every pointer move, and re-rendering React that often to reposition a
-    // couple of bands is exactly the kind of thing that feels bad on a phone.
-    let queued = 0;
-    const measure = () => {
-      if (queued) return;
-      queued = requestAnimationFrame(() => {
-        queued = 0;
-        setGeom(buildGeom());
-      });
-    };
-    // The bands follow the price scale, which moves on zoom, pan, autoscale and
-    // resize. Those are exactly the events below; nothing polls.
-    chart.timeScale().subscribeVisibleLogicalRangeChange(measure);
+    const band = new PriceBand(zoneRef.current.low, zoneRef.current.high, {
+      colour: cssVar("--c1", "#2566c4"),
+      labelBack: cssVar("--s1", "#fcfcfb"),
+      font: cssVar("--font-mono", "monospace"),
+      label: "WHERE YOU FILLED",
+    });
+    series.attachPrimitive(band);
+    bandRef.current = band;
+
     const ro = new ResizeObserver(() => {
       chart.applyOptions(fillRef.current
         ? { width: el.clientWidth, height: el.clientHeight }
         : { width: el.clientWidth });
-      measure();
     });
     ro.observe(el);
 
+    const { handle, dispose } = createChartHandle(chart, series, el);
+    onReadyRef.current?.(handle);
+
     return () => {
-      if (queued) cancelAnimationFrame(queued);
       ro.disconnect();
+      // Whatever is attached comes off while the chart still exists.
+      dispose();
+      onReadyRef.current?.(null);
       chart.remove();
       chartRef.current = null; seriesRef.current = null;
-      markersRef.current = null; priceLineRef.current = null;
+      markersRef.current = null; priceLineRef.current = null; bandRef.current = null;
     };
     // Height is applied below rather than here: tearing the chart down to change
     // it would lose the zoom and scroll every time the full-screen view toggles.
@@ -267,8 +222,10 @@ export function CandleChart({
     const chart = chartRef.current, el = wrapRef.current;
     if (!chart || !el) return;
     chart.applyOptions({ height: fill ? el.clientHeight : height });
-    requestAnimationFrame(() => setGeom(buildGeom()));
-  }, [fill, height, buildGeom]);
+  }, [fill, height]);
+
+  // The band the ladder filled into: always shown, never editable, not a drawing.
+  useEffect(() => { bandRef.current?.set(zoneFromFills.low, zoneFromFills.high); }, [zoneFromFills.low, zoneFromFills.high]);
 
   /* Axis wording follows the timeframe: a weekly chart labelled by the hour is
      unreadable, and an intraday one labelled by the day is useless. */
@@ -301,6 +258,9 @@ export function CandleChart({
     series.setData(view.data.map((c) => ({
       time: c.time as UTCTimestamp, open: c.open, high: c.high, low: c.low, close: c.close,
     })));
+    // A price axis stretched by hand on one timeframe would hide the candles of
+    // the next, so each new set of candles starts fitted again.
+    chart.priceScale("right").applyOptions({ autoScale: true });
 
     /*
      * Snapped to the bar each fill fell in, because a marker between two bars is
@@ -356,112 +316,7 @@ export function CandleChart({
     } else {
       chart.timeScale().fitContent();
     }
-
-    setGeom(buildGeom());
-  }, [view, fills, invalidation, tradeFrom, tradeTo, buildGeom]);
-
-  /*
-   * A tap on the chart, in candle and price.
-   *
-   * The time is the open of the candle tapped, never a point between candles,
-   * so a note always belongs to a candle; the price is pulled onto that
-   * candle's open, high, low or close when it lands within a fingertip of one.
-   */
-  const pointAt = useCallback((x: number, y: number) => {
-    const g = buildGeom();
-    if (!g) return null;
-    const i = Math.round(g.idx(x));
-    const raw = g.price(y);
-    if (raw === null) return null;
-    return { t: g.time(i), p: magnet(raw, g.bar(i), g.y) };
-  }, [buildGeom]);
-
-  // A different tool, or none, abandons a half-placed drawing.
-  useEffect(() => { setDraft(null); setHover(null); }, [tool]);
-  const onDraftRef = useRef(onDraft);
-  onDraftRef.current = onDraft;
-  useEffect(() => { onDraftRef.current?.(draft !== null); }, [draft]);
-
-  const toolRef = useRef(tool);
-  toolRef.current = tool;
-  const draftRef = useRef(draft);
-  draftRef.current = draft;
-  const handlers = useRef({ onCreate, onSelect });
-  handlers.current = { onCreate, onSelect };
-
-  /*
-   * Taps are read off the page's own pointer events, not the chart's click
-   * callback. The chart holds back a second click that comes within half a
-   * second of the first while it waits to see whether it is a double-click —
-   * which silently ate the second corner of a box tapped at a natural pace.
-   * Listening alongside the chart rather than instead of it leaves panning and
-   * zooming exactly as they were: a press that moves is a pan, not a tap.
-   */
-  const tapAt = useCallback((x: number, y: number) => {
-    const t = toolRef.current;
-    // Without a tool in hand, a tap on empty chart puts down whatever was selected.
-    if (!t) { handlers.current.onSelect?.(null); return; }
-    const at = pointAt(x, y);
-    if (!at) return;
-    const create = handlers.current.onCreate;
-    if (t === "level") { create?.({ kind: "level", low: at.p, high: at.p }); return; }
-    if (t === "note") { create?.({ kind: "note", t1: at.t, p1: at.p }); return; }
-    const first = draftRef.current;
-    if (!first) { setDraft(at); return; }
-    setDraft(null); setHover(null);
-    if (t === "zone") {
-      create?.({ kind: "zone", low: Math.min(first.p, at.p), high: Math.max(first.p, at.p) });
-    } else {
-      create?.({ kind: t, t1: first.t, p1: first.p, t2: at.t, p2: at.p });
-    }
-  }, [pointAt]);
-
-  useEffect(() => {
-    const el = wrapRef.current, chart = chartRef.current;
-    if (!el || !chart) return;
-    let down: { x: number; y: number; at: number; id: number } | null = null;
-    const onDown = (e: PointerEvent) => {
-      if (e.isPrimary) down = { x: e.clientX, y: e.clientY, at: e.timeStamp, id: e.pointerId };
-    };
-    const onUp = (e: PointerEvent) => {
-      const d = down;
-      down = null;
-      if (!d || e.pointerId !== d.id) return;
-      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8 || e.timeStamp - d.at > 600) return;
-      const r = el.getBoundingClientRect();
-      const x = e.clientX - r.left, y = e.clientY - r.top;
-      const g = buildGeom();
-      // Taps on the price or time axis are the chart's, not a place to draw.
-      if (!g || x < 0 || y < 0 || x > g.paneW || y > g.paneH) return;
-      tapAt(x, y);
-    };
-    const onCancel = () => { down = null; };
-    // The preview of the second point follows the pointer on a desktop; on a
-    // phone it jumps to wherever the finger last touched, which is still useful.
-    const move = (param: MouseEventParams<Time>) => {
-      if (!toolRef.current || !draftRef.current || !param.point) return;
-      setHover(pointAt(param.point.x, param.point.y));
-    };
-    el.addEventListener("pointerdown", onDown);
-    el.addEventListener("pointerup", onUp);
-    el.addEventListener("pointercancel", onCancel);
-    chart.subscribeCrosshairMove(move);
-    return () => {
-      el.removeEventListener("pointerdown", onDown);
-      el.removeEventListener("pointerup", onUp);
-      el.removeEventListener("pointercancel", onCancel);
-      chart.unsubscribeCrosshairMove(move);
-    };
-  }, [pointAt, tapAt, buildGeom, decimals]);
-
-  // The band the ladder filled into: always shown, never editable, not a drawing.
-  const filled = useMemo(() => {
-    if (!geom) return null;
-    const top = geom.y(Math.max(zoneFromFills.low, zoneFromFills.high));
-    const bot = geom.y(Math.min(zoneFromFills.low, zoneFromFills.high));
-    if (top === null || bot === null) return null;
-    return { top, height: Math.max(2, bot - top) };
-  }, [geom, zoneFromFills]);
+  }, [view, fills, invalidation, tradeFrom, tradeTo]);
 
   const Button = ({ id, label }: { id: string; label: string }) => (
     <button type="button" onClick={() => setSel(id)} aria-pressed={sel === id}
@@ -496,32 +351,10 @@ export function CandleChart({
         <span className="price ml-auto text-[11px]" style={{ color: "var(--ink3)" }}>{symbol}</span>
       </div>
 
-      <div className={`relative ${fill ? "min-h-0 flex-1" : ""}`} style={{ cursor: tool ? "crosshair" : undefined }}>
-        {/* isolate: the chart layers its canvases with z-indexes of its own, which
-            would otherwise rise above the drawings and swallow every tap on them. */}
+      <div className={`relative ${fill ? "min-h-0 flex-1" : ""}`}>
+        {/* isolate: the chart layers its canvases with z-indexes of its own,
+            which must stay below the page's sheets and menus. */}
         <div ref={wrapRef} className={fill ? "absolute inset-0 isolate overflow-hidden" : "isolate w-full"} />
-        {filled && geom && (
-          <div className="pointer-events-none absolute left-0"
-               style={{
-                 top: filled.top, height: filled.height, right: geom.rightPad,
-                 background: "color-mix(in srgb, var(--c1) 14%, transparent)",
-                 borderTop: "1px solid var(--c1)", borderBottom: "1px solid var(--c1)",
-               }}>
-            {/* Under the band rather than inside it: the trader's own name for a
-                zone at the same price sits inside, top-left, and the two collided. */}
-            <span className="absolute left-1 top-full mt-px rounded px-1 text-[9px] font-bold uppercase tracking-wide"
-                  style={{ color: "var(--c1)", background: "color-mix(in srgb, var(--s1) 82%, transparent)" }}>
-              where you filled
-            </span>
-          </div>
-        )}
-        {geom && (
-          <DrawingLayer
-            geom={geom} drawings={drawings} tool={tool} draft={draft} hover={hover}
-            selected={selected} onSelect={(id) => onSelect?.(id)} onMove={(d) => onMove?.(d)}
-            decimals={decimals}
-          />
-        )}
       </div>
     </div>
   );

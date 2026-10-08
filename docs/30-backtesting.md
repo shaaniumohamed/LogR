@@ -136,6 +136,41 @@ would fall behind at once. The touch layer wraps it from outside. Fixes the
 kit itself needs go upstream as pull requests; a patch is applied locally only
 if one is not accepted in time.
 
+#### What milestone 2 shipped
+
+- **The journal's trade chart runs on the kit.** 83 tools (image, table and
+  font icon wait for host input), favourites one tap away and the rest in a
+  panel (a bottom sheet on a phone), magnet off/weak/strong, keep drawing,
+  hide all, undo and redo (whole-set snapshots, one step per gesture), a
+  selection bar (colour, thickness, line style, words, one-tap names from the
+  journal's own list, lock, copy, settings, delete), a settings sheet, and a
+  list of every drawing. Code: `components/chart/`, `lib/chart/`.
+- **Touch layer** (`lib/chart/touch-layer.ts`): with a tool armed a press is
+  held back, a magnifier shows the exact price and time under the finger, and
+  the point lands where the finger lifts; the same magnifier follows a drawing
+  being dragged. A second finger cancels the point and neither finger reaches
+  the kit. Double-tap is a double-click, long-press opens settings, and the
+  chart claims the gesture only while a tool is armed, something is selected,
+  or the chart is full screen — otherwise a finger still scrolls the page.
+- **Teardown order.** The chart owner tells the kit and touch layer to come off
+  before it removes the chart (`lib/chart/handle.ts`); the kit's own teardown
+  touches the chart and would otherwise leave its keyboard listeners behind.
+- **Storage v2.** `trade_annotation.drawings` holds `{ v: 2, drawings }` (the
+  kit's JSON), checked on the server with the kit's own parser, capped at 300
+  and stripped of kinds the app cannot store. Old five-tool mark-up is
+  converted when the page loads (line → horizontal line, zone → rectangle
+  extended both ways, box → rectangle, trend → trend line or ray, note →
+  callout) and written back in the new shape on the first change. Review
+  search, the Trades level filter and Insights → Levels read both shapes.
+- **The "where you filled" band** is now painted by the chart itself (a series
+  primitive), so it stays exact when the price axis is dragged — which is now
+  allowed, as on TradingView.
+
+Not done yet, and why: saved style templates (milestone 3, with the replay
+workspace's layouts), the bodies-only magnet (needs a hook in the kit; to be
+proposed upstream), and finger-sized hit areas inside the kit (the magnifier
+covers precision; hit tolerance is the kit's).
+
 ### Simulation: tick-exact, deterministic, and shaped like the journal
 
 The replay engine (`lib/core/replay/`) and simulated broker (`lib/core/sim/`)
@@ -233,7 +268,7 @@ Every `bt_*` row is scoped to its user and covered by both isolation suites.
 |---|---|---|
 | 0 | R2 set up (owner); this document | — |
 | 1 | Market data: parser, formats, candles, streaming import worker, signed upload/read routes, IndexedDB cache, coverage calendar | 2015–2026 imported; any day opens from cache in under a second |
-| 2 | Chart engine on the drawing kit: touch layer, undo/redo, toolbars, object list; journal chart migrated | All 86 tools usable with mouse and finger |
+| 2 | Chart engine on the drawing kit: touch layer, undo/redo, toolbars, object list; journal chart migrated | All 86 tools usable with mouse and finger — shipped 8 Oct 2026 (see above) |
 | 3 | Replay workspace: strategies, sessions, clock, all timeframes, jumps, line/candles, volume, indicators, session boxes, news, resume | Replay any date on laptop and iPhone |
 | 4 | Simulated broker: ticket, orders, chart lines, partials, breakeven, trailing, ladders, position tool, costs | Golden-scenario tests pass; trades play out tick-exact |
 | 5 | Backtest journal and analytics: write-ups, screenshots, dashboards, R statistics, exit what-ifs, backtest vs live | Owner-only flag removed |

@@ -9,9 +9,10 @@ import { insightsTag, tradesTag } from "@/lib/queries";
 import { viewUrl } from "@/lib/storage";
 import { requestContext } from "@/lib/session";
 import { isOwner, looksLikeEmail, normaliseEmail } from "@/lib/access";
-import type { Drawing } from "@/lib/core/types";
 import { FEELINGS } from "@/lib/core/taxonomy";
 import { cleanDrawings } from "@/lib/core/drawings";
+import { drawingCount, isDocV2 } from "@/lib/core/drawings-doc";
+import { toDoc } from "@/lib/chart/drawings-convert";
 import { readOrDegrade } from "@/lib/db/schema-check";
 
 /**
@@ -195,7 +196,7 @@ export async function saveQuickNote(_prev: { ok?: boolean; error?: string } | nu
   return { ok: true };
 }
 
-export async function saveDrawings(identityHash: string, drawings: Drawing[]) {
+export async function saveDrawings(identityHash: string, drawings: unknown) {
   const ctx = await requestContext();
   if (!ctx?.hasAccess) return { ok: false, error: "Not signed in" };
   const { userId, account } = ctx;
@@ -203,7 +204,15 @@ export async function saveDrawings(identityHash: string, drawings: Drawing[]) {
     return { ok: false, error: "No such trade on this account." };
   }
 
-  const clean = cleanDrawings(drawings);
+  /*
+   * The chart sends the kit's document ({ v: 2, drawings }). A page loaded
+   * before the switch to the kit can still send the old five-tool array for a
+   * while; that is accepted in its old shape rather than refused, so nothing a
+   * trader draws in that window is lost. Anything else is refused, not
+   * stored as an empty set: a malformed request must not wipe the mark-up.
+   */
+  if (!Array.isArray(drawings) && !isDocV2(drawings)) return { ok: false, error: "Those drawings could not be read." };
+  const clean = Array.isArray(drawings) ? cleanDrawings(drawings) : toDoc(drawings);
 
   await db.insert(tradeAnnotations)
     .values({ userId, accountId: account.id, identityHash, drawings: clean, updatedAt: new Date() })
@@ -218,7 +227,7 @@ export async function saveDrawings(identityHash: string, drawings: Drawing[]) {
    * action re-renders the whole page underneath it, which for the trade page
    * means reloading every candle each time a line is nudged and autosaved.
    */
-  return { ok: true, count: clean.length };
+  return { ok: true, count: drawingCount(clean) };
 }
 
 export async function loadAnnotations(accountId: string) {

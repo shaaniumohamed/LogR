@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { loadAnnotations, loadRules } from "@/lib/actions";
+import { drawingCount, drawingTexts } from "@/lib/core/drawings-doc";
 import { loadTrades } from "@/lib/queries";
 import { requireContext } from "@/lib/session";
 import { localDayKey } from "@/lib/core/metrics";
@@ -86,7 +87,7 @@ export default async function Review({ searchParams }: {
    */
   const written = (a: (typeof annotations)[number] | undefined) =>
     !!a && !!(a.setup || a.emotion || a.note || a.invalidation
-      || a.confluences?.length || a.mistakes?.length || a.drawings?.length);
+      || a.confluences?.length || a.mistakes?.length || drawingCount(a.drawings) > 0);
 
   const pending = inSpan.filter((t) => !written(byHash.get(t.id)));
   const reviewed = inSpan.filter((t) => written(byHash.get(t.id)));
@@ -112,7 +113,7 @@ export default async function Review({ searchParams }: {
     if (!a) return false;
     const hay = [a.note, a.setup, a.timeframe, a.emotion,
                  ...(a.confluences ?? []), ...(a.mistakes ?? []),
-                 ...(a.drawings ?? []).map((d) => d.label)].filter(Boolean).join(" ").toLowerCase();
+                 ...drawingTexts(a.drawings)].filter(Boolean).join(" ").toLowerCase();
     return hay.includes(needle);
   };
   const found = reviewed.filter(matches);

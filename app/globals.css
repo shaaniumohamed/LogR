@@ -246,3 +246,7 @@ a:active, button:active, summary:active { opacity: 0.66; }
   padding-block: 6px;
   margin-block: -6px;
 }
+
+/* A strip that scrolls sideways within itself (tool bars on a phone) without a scrollbar track. */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

@@ -76,6 +76,12 @@ run("one trader cannot reach another's journal", () => {
       ]);
       expect(r.ok).toBe(false);
 
+      // The drawing kit's document shape is refused the same way.
+      const r2 = await actions.saveDrawings("u-alice-trade-2", {
+        v: 2, drawings: [{ id: "x", kind: "horizontal-line", points: [{ time: 1_789_450_800, price: 1 }], style: { text: "BOB WAS HERE" } }],
+      });
+      expect(r2.ok).toBe(false);
+
       asUser(ALICE);
       const mine = await actions.loadAnnotation("a-alice", "u-alice-trade-2");
       expect(mine?.drawings ?? null).toBeNull();

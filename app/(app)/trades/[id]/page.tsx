@@ -16,6 +16,7 @@ import { dayLabel } from "@/lib/core/calendar";
 import { heldOverWeekend } from "@/lib/core/analysis";
 import { caughtByClose, closuresIn, sessionLeftAt } from "@/lib/core/market-hours";
 import { ChartPanel } from "./chart-panel";
+import { toKit } from "@/lib/chart/drawings-convert";
 import { GetCandles } from "./get-candles";
 import { Card, Eyebrow, Note, Stat, StatGrid, Verdict, money, pct } from "@/components/ui";
 import { Info } from "@/components/info";
@@ -294,7 +295,12 @@ export default async function TradeDetail({ params, searchParams }: {
                   symbol={t.symbol}
                   zoneFromFills={{ low: t.zoneLow, high: t.zoneHigh }}
                   invalidation={existing?.invalidation ?? null}
-                  initialDrawings={existing?.drawings ?? []}
+                  // Mark-up saved by the old five tools arrives converted; zones that
+                  // ran the chart's full width are anchored around the trade.
+                  initialDrawings={toKit(existing?.drawings, {
+                    from: Math.floor(t.openedAt.getTime() / 1000) - 3600,
+                    to: Math.floor(t.closedAt.getTime() / 1000) + 3600,
+                  })}
                   tradeFrom={Math.floor(t.openedAt.getTime() / 1000)}
                   tradeTo={Math.floor(t.closedAt.getTime() / 1000)}
                 />
@@ -305,17 +311,24 @@ export default async function TradeDetail({ params, searchParams }: {
                 The solid blue band is the range your ladder actually filled into; it is drawn
                 from your fills, not from anything you typed.
                 <br /><br />
-                <b>Marking up.</b> Pick a tool under the chart, then tap the chart:
-                a <b>Line</b> or <b>Zone</b> for a price level, a <b>Box</b> for an order block
-                or a range that starts at a candle, a <b>Trend</b> line, or a <b>Note</b> pinned
-                to the candle that made you take the trade. Tap anything you drew to name it,
-                recolour it, drag it, or delete it. It saves by itself as you go, and shows on
-                every timeframe — a level drawn on the daily is there on the one minute.
+                <b>Marking up.</b> Your favourite tools sit under the chart, and <b>All tools</b>
+                opens the rest: lines, fibs, channels, patterns, measuring tools, shapes and
+                notes — the same set TradingView has. Pick one, then click the chart. On a phone,
+                press and slide instead: a magnifier shows what is under your finger, and the
+                point goes where you lift it.
+                <br /><br />
+                Tap anything you drew to recolour it, name it, lock it, copy it or delete it;
+                the quick names (Support, Demand zone, Order block…) are one tap. Press and hold
+                it, or tap the cog, for everything else. <b>Magnet</b> pulls each point onto the
+                nearest open, high, low or close. Undo and redo sit in the same strip
+                (Ctrl or ⌘ + Z on a keyboard). Everything saves by itself as you go, and shows
+                on every timeframe — a level drawn on the daily is there on the one minute.
+                <b> Expand</b> gives the chart the whole screen.
                 <br /><br />
                 Draw the level you were trading and the zone your fills landed in becomes
                 something to compare it against: did you get filled where you meant to, or did
-                you chase? Lines, zones and boxes also feed <b>Levels</b> in Insights, which
-                adds up every trade taken at the same price.
+                you chase? Horizontal lines, horizontal rays and rectangles also feed
+                <b> Levels</b> in Insights, which adds up every trade taken at the same price.
                 <br /><br />
                 The red dashed line is your invalidation, set in the form below.
                 <br /><br />
