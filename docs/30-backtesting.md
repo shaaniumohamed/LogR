@@ -315,12 +315,60 @@ Every `bt_*` row is scoped to its user and covered by both isolation suites.
 - **Not yet:** write-ups and screenshots per trade, exit what-ifs, backtest vs
   live, CSV export, opening it to invited friends (milestone 5).
 
+## What the "trading feel" release shipped (owners only)
+
+The first release had everything a backtest needs; using it, it felt slow next
+to MT5. This release is about how trading feels — the small things.
+
+- **One click.** SELL bid | lots | BUY ask on the chart (a strip of big
+  buttons on a phone). It fills at once with no stop and no confirmation; the
+  ticket stays for limit, stop, ladder and risk sizing, and now defaults to lots.
+- **Levels on the chart, MT5-style** (`lib/chart/trade-lines.ts`,
+  `lib/chart/line-interaction.ts`). Each line has a label with buttons: SL /
+  TP (drag them out), BE, × (close, remove, cancel). Drag out from an entry
+  label: toward profit makes a target, toward loss a stop — judged by the
+  current price, so a stop can be dragged above the entry to lock in profit.
+  Double-click a label to type an exact price. Labels are pushed apart so a
+  stop a few cents from the entry stays clickable; the same boxes are painted
+  and hit-tested. Ask line and a countdown to the candle close.
+- **R from the first stop** (`lib/core/sim/broker.ts`). A stop dragged in
+  after an instant entry counts — if it is on the losing side, set before any
+  part was closed, and price had not been past it. Moving it later never
+  changes R. Trades saved before keep the old rule until they close.
+- **Linked Long/Short Position tool** (`lib/chart/linked-position.ts`,
+  `use-linked-positions.ts`). "Place order" sizes from the drawing's own risk
+  and ties the drawing to the order: drag its stop or target edge and the order
+  follows; change the order elsewhere and the drawing follows. Changes go to
+  the broker only when a gesture ends, never on undo; the drawing is only
+  rewritten when it differs, so there is no loop. A closed trade's drawing
+  stays, locked and stretched to the exit, as a record (removable in Chart).
+  Links live in the session's chart settings, not on the drawing (Duplicate
+  copies every field of a drawing).
+- **Exact auto-pause** (`lib/core/replay/ticks.ts`, `pauses.ts`). Fills, stops
+  and targets stop the replay on the very tick (the other ticks in that
+  millisecond are fed first, so carrying on is exact); optional pauses before
+  high-impact news and at session opens. Resuming a saved session never pauses.
+- **Start on the chart.** "Replay from…" opens the latest data with a line to
+  click (dragged by its handle on a phone); the future is dimmed, then gone.
+  New session offers it too. After any jump the chart opens on the newest
+  candles at the same zoom, instead of keeping a view of another stretch of time.
+- **Random start in a range**, at the start of the day, an hour before Tokyo,
+  London or New York (daylight saving included), or a random minute
+  (`startTimeFor`).
+- **Small things.** Keyboard (Shift+B / Shift+S / Shift+X / Shift+E, + / −,
+  ? lists them; never while typing or drawing); sounds made with Web Audio — one
+  neutral sound for every close, win or loss; result messages; dotted
+  entry→exit lines (`lib/chart/trade-paths.ts`); click a trade in History to
+  see it (older history loads if needed); trades from later in replay time,
+  after a jump back, are faded and kept off the chart.
+
 ## Budgets
 
 | Measure | Target |
 |---|---|
 | Pan with 5,000 bars and 100 drawings | 60 fps laptop, ≥ 45 fps iPhone |
 | Replay the 1-minute chart at 1 h/s | 60 fps laptop (measured: 55–62 fps over 80 s) |
+| …with 3 open positions, ask line and countdown | 60 fps laptop (measured: mean 60 over 60 s) |
 | Decode a tick day (worker) | < 100 ms |
 | First chart | < 1.5 s on 4G, < 300 ms from cache |
 | Import | ~1–2 min of processing per year of ticks, resumable |

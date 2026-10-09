@@ -54,6 +54,25 @@ export interface MarketChartStatus {
 /** Hands the replay a way to put its live candles on the chart (null when the chart goes). */
 export type LivePush = (closed: Candle[], forming: Candle | null) => void;
 
+/** Which candles are on screen, by time, so the same view can be put back after the chart reopens. */
+export interface SavedView { refTime: number; refOffset: number; span: number; barSpacing: number }
+
+/** How to place the view once, the next time the chart opens its history. */
+export type ViewRequest =
+  | { kind: "latest" }
+  | { kind: "restore"; view: SavedView }
+  /** Put the candle at `time` under pixel `x`, at this candle width. */
+  | { kind: "anchor"; time: number; x: number; barSpacing: number };
+
+/** What the page around the chart can ask of it. */
+export interface MarketChartControl {
+  view(): SavedView | null;
+  /** The candle under pane pixel `x`, and the x of its centre. */
+  candleAt(x: number): { time: number; x: number } | null;
+  /** Scroll to a moment, loading older history first if it is not on the chart. */
+  focus(time: number): Promise<"shown" | "not-held">;
+}
+
 /**
  * The stored price history on a chart that behaves like TradingView's.
  *
@@ -76,7 +95,7 @@ export type LivePush = (closed: Candle[], forming: Candle | null) => void;
  */
 export function MarketChart({
   symbol, tf, timeZone, decimals, goTo, height = 420, fill = false, onReady, onStatus,
-  until, onLive, type = "candles", volume: showVolume = true, indicators, markers,
+  until, onLive, type = "candles", volume: showVolume = true, indicators, markers, viewOnOpen, onControl,
 }: {
   symbol: string;
   tf: Timeframe;
@@ -97,6 +116,9 @@ export function MarketChart({
   volume?: boolean;
   indicators?: IndicatorSpec[];
   markers?: SeriesMarker<Time>[];
+  /** Applied once, the next time history opens (a new object each time). */
+  viewOnOpen?: ViewRequest | null;
+  onControl?: (c: MarketChartControl | null) => void;
 }) {
   const wrap = useRef<HTMLDivElement>(null);
   const [api, setApi] = useState<{ chart: IChartApi; main: ISeriesApi<SeriesType>; volume: ISeriesApi<"Histogram"> | null } | null>(null);
@@ -124,6 +146,11 @@ export function MarketChart({
   onStatusRef.current = onStatus;
   const onLiveRef = useRef(onLive);
   onLiveRef.current = onLive;
+  const viewRef = useRef(viewOnOpen);
+  viewRef.current = viewOnOpen;
+  const appliedView = useRef<ViewRequest | null>(null);
+  const onControlRef = useRef(onControl);
+  onControlRef.current = onControl;
   const colours = useRef({ up: "#1baf7a", down: "#e34948" });
 
   /* ------------------------------------------------------------ create */
@@ -245,11 +272,17 @@ export function MarketChart({
     }
     drawIndicators();
 
-    // Keep the same candle under the same pixel, whatever was added or dropped.
-    if (before && refTime !== null && rows.current.length) {
-      const idx = lowerBound(rows.current, refTime);
-      const from = idx - (refIdx - before.from);
-      ts.setVisibleLogicalRange({ from, to: from + (before.to - before.from) });
+    // Keep the same candle under the same pixel, whatever was added or dropped
+    // — when that candle is still here. After a jump to another stretch of
+    // history it is not: show the newest candles instead of empty space.
+    const all = rows.current;
+    if (before && refTime !== null && all.length) {
+      if (refTime < all[0].time || refTime > all[all.length - 1].time) ts.scrollToRealTime();
+      else {
+        const idx = lowerBound(all, refTime);
+        const from = idx - (refIdx - before.from);
+        ts.setVisibleLogicalRange({ from, to: from + (before.to - before.from) });
+      }
     }
     setVersion((v) => v + 1);
   }, [api, point, volPoint, drawIndicators]);
@@ -351,14 +384,18 @@ export function MarketChart({
     const t0 = performance.now();
     setLoading("first");
     live.current = { closed: [], forming: null, drawn: 0, first: null };
-    const keepView = replay && openedFor.current === `${symbol}|${tf.key}` && rows.current.length > 0;
+    // Reopened for the replay on the same timeframe (live candles folded into
+    // the history): keep the view. Coming from the full history is not that.
+    const opening = `${symbol}|${tf.key}|${replay ? "replay" : "full"}`;
+    const request = viewRef.current && viewRef.current !== appliedView.current ? viewRef.current : null;
+    const keepView = !request && replay && openedFor.current === opening && rows.current.length > 0;
     // A replay holds a window of recent candles, wide enough to keep what is on screen.
     const shownFrom = keepView ? Math.floor(api.chart.timeScale().getVisibleLogicalRange()?.from ?? 0) : rows.current.length;
     const held = replay ? Math.max(REPLAY_WINDOW, rows.current.length - shownFrom + EDGE * 4) : undefined;
     BarFeed.open(symbol, tf, { anchor: replay ? until : at, until, window: held }).then((feed) => {
       if (!alive) return;
       feedRef.current = feed;
-      openedFor.current = `${symbol}|${tf.key}`;
+      openedFor.current = opening;
       if (keepView) {
         // The replay folded its live candles into the stored history: same
         // timeframe, same zoom, same candles under the same pixels.
@@ -368,8 +405,9 @@ export function MarketChart({
         rows.current = [];
         draw(feed.bars, "none");
         // The replay puts its candles on as soon as it can push them.
-        onLiveRef.current?.(push);
-        frame(at ?? null);
+        if (replay) onLiveRef.current?.(push);
+        if (request) { appliedView.current = request; place(request); }
+        else frame(at ?? null);
       }
       setLoading(null);
       report(t0);
@@ -382,6 +420,65 @@ export function MarketChart({
     // `goTo` is compared by identity on purpose: picking the same day twice re-centres.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, symbol, tf, goTo, toLatest, until]);
+
+  /** Put the view where a request says. */
+  const place = useCallback((r: ViewRequest) => {
+    if (!api) return;
+    const ts = api.chart.timeScale();
+    const all = rows.current;
+    if (r.kind === "latest" || !all.length) { api.chart.priceScale("right").applyOptions({ autoScale: true }); ts.scrollToRealTime(); return; }
+    if (r.kind === "restore") {
+      ts.applyOptions({ barSpacing: r.view.barSpacing });
+      const from = lowerBound(all, r.view.refTime) - r.view.refOffset;
+      ts.setVisibleLogicalRange({ from, to: from + r.view.span });
+      return;
+    }
+    ts.applyOptions({ barSpacing: r.barSpacing });
+    const width = api.chart.paneSize(0).width;
+    const idx = Math.min(all.length - 1, lowerBound(all, r.time));
+    const from = idx - r.x / r.barSpacing + 0.5;
+    ts.setVisibleLogicalRange({ from, to: from + width / r.barSpacing });
+  }, [api]);
+
+  // What the page can ask of the chart.
+  useEffect(() => {
+    if (!api) return;
+    const ts = api.chart.timeScale();
+    onControlRef.current?.({
+      view: () => {
+        const r = ts.getVisibleLogicalRange();
+        const all = rows.current;
+        if (!r || !all.length) return null;
+        const idx = Math.min(all.length - 1, Math.max(0, Math.round(r.from)));
+        return { refTime: all[idx].time, refOffset: idx - r.from, span: r.to - r.from, barSpacing: ts.options().barSpacing };
+      },
+      candleAt: (x) => {
+        const l = ts.coordinateToLogical(x);
+        const all = rows.current;
+        if (l === null || !all.length) return null;
+        const i = Math.min(all.length - 1, Math.max(0, Math.round(l)));
+        const cx = ts.logicalToCoordinate(i as never);
+        return { time: all[i].time, x: cx ?? x };
+      },
+      focus: async (time) => {
+        const feed = feedRef.current;
+        for (let round = 0; feed && rows.current.length && rows.current[0].time > time && feed.hasOlder && round < 12; round++) {
+          setLoading("older");
+          const changed = await feed.older().finally(() => setLoading(null));
+          if (!changed || feedRef.current !== feed) break;
+          draw(feed.bars, "view");
+        }
+        const all = rows.current;
+        if (!all.length || all[0].time > time) return "not-held";
+        const r = ts.getVisibleLogicalRange();
+        const span = r ? r.to - r.from : 120;
+        const idx = lowerBound(all, tf.bucket(time));
+        ts.setVisibleLogicalRange({ from: idx - span / 2, to: idx + span / 2 });
+        return "shown";
+      },
+    });
+    return () => onControlRef.current?.(null);
+  }, [api, draw, tf]);
 
   /** Back to the newest candles at the default zoom, loading them if need be. */
   const reset = useCallback(() => {
@@ -426,8 +523,8 @@ export function MarketChart({
       <div ref={wrap} className={`isolate w-full ${fill ? "absolute inset-0" : ""}`} style={fill ? undefined : { height }} />
       {api && <ChartLegend chart={api.chart} candles={api.main} volume={api.volume} title={title} decimals={decimals} version={version} />}
       {loading && (
-        <div className="pointer-events-none absolute top-8 z-[5] rounded-full px-2.5 py-1 text-[11px] font-medium"
-             style={{ [loading === "newer" ? "right" : "left"]: 8, background: "var(--s1)", color: "var(--ink2)", boxShadow: "0 1px 6px rgb(0 0 0 / 0.15)" }}>
+        <div className="pointer-events-none absolute left-1/2 top-8 z-[5] -translate-x-1/2 rounded-full px-2.5 py-1 text-[11px] font-medium"
+             style={{ background: "var(--s1)", color: "var(--ink2)", boxShadow: "0 1px 6px rgb(0 0 0 / 0.15)" }}>
           {loading === "first" ? "Loading price history…" : loading === "older" ? "Loading earlier history…" : "Loading later history…"}
         </div>
       )}

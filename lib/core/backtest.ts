@@ -20,12 +20,31 @@ export interface IndicatorSpec {
   color: string;
 }
 
+/** A Long/Short Position drawing tied to the order it placed (see lib/chart/linked-position.ts). */
+export interface BtLink {
+  orderId: string;
+  ideaId: string;
+  side: "buy" | "sell";
+  /** The drawing was deleted while the trade was open; undo brings it back. */
+  detached?: boolean;
+  /** The trade closed: the drawing stays, unlinked and locked, as a record. */
+  frozen?: boolean;
+}
+
 export interface BtChartPrefs {
   type: "candles" | "line";
   volume: boolean;
   sessions: boolean;
   news: "off" | "high" | "medium";
   indicators: IndicatorSpec[];
+  /** The ask line: the price a buy fills at. */
+  askLine: boolean;
+  /** Time left on the current candle, on the price axis. */
+  countdown: boolean;
+  /** Dotted lines from each finished trade's entry to its exit. */
+  tradePaths: boolean;
+  /** Position drawings tied to their orders, by drawing id. */
+  links?: Record<string, BtLink>;
 }
 
 export const DEFAULT_CHART: BtChartPrefs = {
@@ -33,6 +52,9 @@ export const DEFAULT_CHART: BtChartPrefs = {
   volume: true,
   sessions: true,
   news: "high",
+  askLine: true,
+  countdown: true,
+  tradePaths: true,
   indicators: [
     { id: "ema20", kind: "ema", period: 20, color: "#2962ff" },
     { id: "ema50", kind: "ema", period: 50, color: "#ff9800" },

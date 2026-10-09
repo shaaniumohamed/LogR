@@ -1,9 +1,15 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSession, createStrategy, deleteSession, deleteStrategy, updateStrategy } from "@/lib/backtest-actions";
 import { wallToUtc } from "@/lib/core/zones";
+import { START_WHEN, type StartWhen } from "@/lib/core/replay/clock";
+
+const readWhen = (): StartWhen => {
+  try { const v = localStorage.getItem("logr.bt.startWhen"); return v && START_WHEN.some((w) => w.key === JSON.parse(v)) ? JSON.parse(v) : "day"; } catch { return "day"; }
+};
+const writeWhen = (v: StartWhen) => { try { localStorage.setItem("logr.bt.startWhen", JSON.stringify(v)); } catch { /* fine */ } };
 
 const inputCls = "h-10 w-full rounded-lg px-3 text-[14px]";
 const inputStyle = { background: "var(--s1)", border: "1px solid var(--line)", color: "var(--ink)" } as const;
@@ -41,14 +47,22 @@ export function NewStrategy() {
 }
 
 /**
- * A new replay: where it starts, and the account it trades with. The start is
- * picked on the trader's own clock; "a random day" picks any held weekday so
- * the chart cannot be read with hindsight.
+ * A new replay: where it starts, and the account it trades with.
+ *
+ *  - A random day: any held weekday in a range, so the chart can't be read
+ *    with hindsight, starting where in the day the trader chooses.
+ *  - A date I pick: a date and time on the trader's own clock.
+ *  - Pick on the chart: opens at the latest data with a line to click where
+ *    the replay should begin, as on TradingView.
  */
 export function NewSession({ strategyId, timeZone, range }: { strategyId: string; timeZone: string; range: { first: string; last: string } }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"date" | "random">("random");
+  const [mode, setMode] = useState<"date" | "random" | "pick">("random");
+  const [from, setFrom] = useState(range.first);
+  const [to, setTo] = useState(range.last);
+  const [when, setWhen] = useState<StartWhen>("day");
+  useEffect(() => { setWhen(readWhen()); }, []);
   const [date, setDate] = useState(range.last);
   const [time, setTime] = useState("07:00");
   const [name, setName] = useState("");
@@ -65,8 +79,11 @@ export function NewSession({ strategyId, timeZone, range }: { strategyId: string
   const submit = async () => {
     setError(null);
     const n = (v: string) => Number(v.replace(",", "."));
-    let start: { at: number } | { random: true };
-    if (mode === "random") start = { random: true };
+    let start: { at: number } | { random: true; from?: string; to?: string; when?: StartWhen } | { pick: true };
+    if (mode === "random") {
+      if (from && to && from > to) return setError("The range ends before it starts.");
+      start = { random: true, from: from || undefined, to: to || undefined, when };
+    } else if (mode === "pick") start = { pick: true };
     else {
       const [y, m, d] = date.split("-").map(Number);
       const [hh, mm] = time.split(":").map(Number);
@@ -83,7 +100,7 @@ export function NewSession({ strategyId, timeZone, range }: { strategyId: string
     });
     setBusy(false);
     if (!r.ok) return setError(r.error);
-    router.push(`/backtest/s/${r.id}`);
+    router.push(`/backtest/s/${r.id}${mode === "pick" ? "?pick=1" : ""}`);
   };
 
   return (
@@ -92,7 +109,27 @@ export function NewSession({ strategyId, timeZone, range }: { strategyId: string
       <div className="seg w-full" role="group" aria-label="Start">
         <button type="button" aria-pressed={mode === "random"} onClick={() => setMode("random")} className="flex-1 !py-1.5 !text-[12.5px]">A random day</button>
         <button type="button" aria-pressed={mode === "date"} onClick={() => setMode("date")} className="flex-1 !py-1.5 !text-[12.5px]">A date I pick</button>
+        <button type="button" aria-pressed={mode === "pick"} onClick={() => setMode("pick")} className="flex-1 !py-1.5 !text-[12.5px]">Pick on the chart</button>
       </div>
+      {mode === "random" && (
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <label><span className="mb-1 block text-[11.5px]" style={{ color: "var(--ink3)" }}>Between</span>
+              <input type="date" value={from} min={range.first} max={range.last} onChange={(e) => setFrom(e.target.value)} className={inputCls} style={inputStyle} aria-label="Random from" /></label>
+            <label><span className="mb-1 block text-[11.5px]" style={{ color: "var(--ink3)" }}>and</span>
+              <input type="date" value={to} min={range.first} max={range.last} onChange={(e) => setTo(e.target.value)} className={inputCls} style={inputStyle} aria-label="Random to" /></label>
+          </div>
+          <label className="block"><span className="mb-1 block text-[11.5px]" style={{ color: "var(--ink3)" }}>Start at</span>
+            <select value={when} onChange={(e) => { const v = e.target.value as StartWhen; setWhen(v); writeWhen(v); }} className={inputCls} style={inputStyle} aria-label="Start at">
+              {START_WHEN.map((w) => <option key={w.key} value={w.key}>{w.label}</option>)}
+            </select></label>
+        </div>
+      )}
+      {mode === "pick" && (
+        <p className="text-[12px]" style={{ color: "var(--ink3)" }}>
+          The chart opens at the latest data. Move the line to where the replay should begin and click — everything after it disappears.
+        </p>
+      )}
       {mode === "date" && (
         <div className="grid grid-cols-2 gap-2">
           <input type="date" value={date} min={range.first} max={range.last} onChange={(e) => setDate(e.target.value)} className={inputCls} style={inputStyle} aria-label="Start date" />

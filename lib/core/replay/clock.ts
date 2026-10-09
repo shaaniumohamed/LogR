@@ -109,3 +109,35 @@ export function nextDayOpen(t: number): number {
   while ([0, 6].includes(new Date(d * DAY * 1000).getUTCDay())) d++;
   return d * DAY;
 }
+
+/* ----------------------------------------------------------- random starts */
+
+/** Where in a day a replay starts. */
+export type StartWhen = "day" | "tokyo" | "london" | "newyork" | "random";
+
+export const START_WHEN: { key: StartWhen; label: string }[] = [
+  { key: "day", label: "Start of the day" },
+  { key: "tokyo", label: "1 hour before Tokyo opens" },
+  { key: "london", label: "1 hour before London opens" },
+  { key: "newyork", label: "1 hour before New York opens" },
+  { key: "random", label: "A random time" },
+];
+
+/**
+ * The moment (epoch seconds) to start a replay on `day` (YYYY-MM-DD, a UTC
+ * trading day): its 00:00 UTC open, an hour before one of the sessions opens
+ * (daylight saving included, as the session boxes draw them), or a whole
+ * minute picked at random between 00:05 and 20:30 UTC — inside the day and
+ * clear of gold's daily break.
+ */
+export function startTimeFor(day: string, when: StartWhen, rand: () => number = Math.random): number {
+  const d0 = Math.floor(Date.parse(`${day}T00:00:00Z`) / 1000);
+  if (when === "random") {
+    const first = 5, last = 20 * 60 + 30; // minutes after 00:00 UTC
+    return d0 + (first + Math.floor(rand() * (last - first + 1))) * 60;
+  }
+  if (when === "day") return d0;
+  const s = SESSIONS.find((x) => x.id === when);
+  const w = s ? windowOn(s, Math.floor(d0 / DAY)) : null;
+  return w ? w.start - 3600 : d0;
+}

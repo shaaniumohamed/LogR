@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { Broker, OpenPosition, PendingOrder, Side, SimAction } from "@/lib/core/sim/broker";
 import { backtestStats } from "@/lib/core/backtest";
 import { money, pct } from "@/components/ui";
+import { Info } from "@/components/info";
 import { toRow, type TradeProps } from "./model";
 
 const num = (v: string) => { const n = Number(v.replace(",", ".")); return v.trim() === "" || !Number.isFinite(n) ? null : n; };
@@ -267,24 +268,44 @@ function Small({ onClick, children }: { onClick: () => void; children: React.Rea
 
 /* ----------------------------------------------------------------- history */
 
-export function History({ trades, timeZone }: { trades: TradeProps[]; timeZone: string }) {
+export function History({ trades, timeZone, clock, onSelect }: {
+  trades: TradeProps[];
+  timeZone: string;
+  /** The replay clock (ms): trades from later in replay time (after jumping back) are shown faded. */
+  clock?: number;
+  /** Clicking a trade shows it on the chart. */
+  onSelect?: (t: TradeProps) => void;
+}) {
   const f = useMemo(() => new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone }), [timeZone]);
   if (!trades.length) return <p className="py-6 text-center text-[13px]" style={{ color: "var(--ink3)" }}>No finished trades yet.</p>;
   return (
     <ul className="divide-y" style={{ borderColor: "var(--line)" }}>
-      {[...trades].reverse().map((t) => (
-        <li key={t.id} className="flex items-center gap-2 py-2 text-[12.5px]" style={{ borderColor: "var(--line)" }}>
-          <span className="w-12 shrink-0 font-semibold" style={{ color: t.direction === "long" ? "#2962ff" : "#f23645" }}>{t.direction === "long" ? "Long" : "Short"}</span>
-          <span className="num min-w-0 flex-1" style={{ color: "var(--ink2)" }}>
-            <span className="block truncate">{f.format(new Date(t.openedAt))} · {t.lots.toFixed(2)} · {t.avgEntry.toFixed(2)} → {t.avgExit.toFixed(2)}</span>
-            <span className="block truncate text-[11.5px]" style={{ color: "var(--ink3)" }}>{t.closeReasons.map((r) => REASON[r] ?? r).join(", ")}</span>
-          </span>
-          <span className="num shrink-0 text-right">
-            <span className="block font-semibold" style={{ color: t.pnl >= 0 ? "var(--profit)" : "var(--loss)" }}>{money(t.pnl)}</span>
-            {t.r !== null && <span className="block text-[11px]" style={{ color: "var(--ink3)" }}>{t.r >= 0 ? "+" : ""}{t.r.toFixed(2)}R</span>}
-          </span>
-        </li>
-      ))}
+      {[...trades].reverse().map((t) => {
+        const later = clock !== undefined && t.openedAt > clock;
+        const body = (
+          <>
+            <span className="w-12 shrink-0 font-semibold" style={{ color: t.direction === "long" ? "#2962ff" : "#f23645" }}>{t.direction === "long" ? "Long" : "Short"}</span>
+            <span className="num min-w-0 flex-1" style={{ color: "var(--ink2)" }}>
+              <span className="block truncate">{f.format(new Date(t.openedAt))} · {t.lots.toFixed(2)} · {t.avgEntry.toFixed(2)} → {t.avgExit.toFixed(2)}</span>
+              <span className="block truncate text-[11.5px]" style={{ color: "var(--ink3)" }}>
+                {later ? "later in the replay · " : ""}{t.closeReasons.map((r) => REASON[r] ?? r).join(", ")}{t.r === null ? " · no stop" : ""}
+              </span>
+            </span>
+            <span className="num shrink-0 text-right">
+              <span className="block font-semibold" style={{ color: t.pnl >= 0 ? "var(--profit)" : "var(--loss)" }}>{money(t.pnl)}</span>
+              {t.r !== null && <span className="block text-[11px]" style={{ color: "var(--ink3)" }}>{t.r >= 0 ? "+" : ""}{t.r.toFixed(2)}R</span>}
+            </span>
+          </>
+        );
+        return (
+          <li key={t.id} style={{ borderColor: "var(--line)", opacity: later ? 0.5 : 1 }}>
+            {onSelect ? (
+              <button type="button" onClick={() => onSelect(t)} title="Show on the chart"
+                      className="flex w-full items-center gap-2 py-2 text-left text-[12.5px] hover:bg-[var(--s2)]">{body}</button>
+            ) : <div className="flex items-center gap-2 py-2 text-[12.5px]">{body}</div>}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -320,9 +341,14 @@ export function StatsView({ trades, compact = false }: { trades: TradeProps[]; c
       <EquityCurve points={s.equity} />
       {s.n > 0 && s.rCount < s.n && (
         <p className="text-[11.5px]" style={{ color: "var(--ink3)" }}>
-          R is measured on the {s.rCount} of {s.n} trades that had a stop-loss when they were opened.
+          R is shown for {s.rCount} of {s.n} trades. The other {s.n - s.rCount} had no stop set in time, so they show $ only.
         </p>
       )}
+      <Info title="How R is measured">
+        A trade&apos;s risk is the first stop-loss you set on it — when you open it, or dragged in a moment later.
+        It counts if it is on the losing side of your entry, set before you closed any part of the trade, and
+        price hadn&apos;t already been there. Moving the stop afterwards doesn&apos;t change it.
+      </Info>
     </div>
   );
 }

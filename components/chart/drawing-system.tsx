@@ -29,7 +29,19 @@ const HISTORY_LIMIT = 100;
  * whole snapshots (the kit's own JSON, so an undo is exactly the chart as it
  * was), and the host's `onSave`, called a moment after the last change.
  */
-export function DrawingSystem({ handle, initial, onSave, onDirty, presets, interval, timeZone, decimals, pageScroll, panelAbove, extra, onTool, selectionActions }: {
+/**
+ * The drawing kit, for code outside the toolbar: a linked position drawing
+ * that follows its trade is changed from here. Such changes are saved like any
+ * other but are not undo steps — undoing the trader's own edit must not
+ * replay one the trade made.
+ */
+export interface DrawingApi {
+  dm: DrawingManager;
+  applyExternal(d: Drawing): void;
+  removeExternal(id: string): void;
+}
+
+export function DrawingSystem({ handle, initial, onSave, onDirty, presets, interval, timeZone, decimals, pageScroll, panelAbove, extra, onTool, selectionActions, onApi }: {
   handle: ChartHandle;
   initial: Drawing[];
   /** The whole set, a moment after the last change (and at once on unmount if one is pending). */
@@ -51,6 +63,7 @@ export function DrawingSystem({ handle, initial, onSave, onDirty, presets, inter
   onTool?: (tool: DrawingKind | null) => void;
   /** Extra buttons in the selected drawing's bar (e.g. "Place order" on a position tool). */
   selectionActions?: (d: Drawing) => React.ReactNode;
+  onApi?: (api: DrawingApi | null) => void;
 }) {
   const dmRef = useRef<DrawingManager | null>(null);
   const touchRef = useRef<TouchLayer | null>(null);
@@ -81,6 +94,8 @@ export function DrawingSystem({ handle, initial, onSave, onDirty, presets, inter
   onDirtyRef.current = onDirty;
   const onToolRef = useRef(onTool);
   onToolRef.current = onTool;
+  const onApiRef = useRef(onApi);
+  onApiRef.current = onApi;
 
   const fmtTime = useMemo(() => new Intl.DateTimeFormat("en-GB", {
     day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone,
@@ -145,6 +160,12 @@ export function DrawingSystem({ handle, initial, onSave, onDirty, presets, inter
       onLongPress: (id) => setSettings(id),
     });
     touchRef.current = touch;
+    const external = (fn: () => void) => { const was = replaying.current; replaying.current = true; try { fn(); } finally { replaying.current = was; } };
+    onApiRef.current?.({
+      dm,
+      applyExternal: (d) => external(() => dm.update(d)),
+      removeExternal: (id) => external(() => dm.remove(id)),
+    });
 
     // Torn down before the chart goes (see ChartHandle), or on unmount if
     // this component goes first; whichever comes first does the work.
@@ -159,6 +180,7 @@ export function DrawingSystem({ handle, initial, onSave, onDirty, presets, inter
         saveTimer.current = 0;
         onSaveRef.current?.(JSON.parse(dm.exportJSON()));
       }
+      onApiRef.current?.(null);
       offs.forEach((off) => off());
       touch.detach();
       if (touchRef.current === touch) touchRef.current = null;

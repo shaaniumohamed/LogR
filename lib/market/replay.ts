@@ -2,6 +2,8 @@ import type { BarSeries, TickSeries } from "@/lib/core/market/format";
 import { concatBars, type Timeframe } from "@/lib/core/market/bars";
 import { barSpan } from "@/lib/core/replay/clock";
 import { closedBetween, foldBars, foldTicks, joinParts, lowerBoundMs, type Candle } from "@/lib/core/replay/forming";
+import { feedTicks } from "@/lib/core/replay/ticks";
+import type { PauseReason } from "@/lib/core/replay/pauses";
 import { Broker, type ActionResult, type SimAction, type SimEvent, type SimSettings, type SimState } from "@/lib/core/sim/broker";
 import { catalogue, loadBarFiles, loadTickDay, manifest } from "./client";
 
@@ -51,6 +53,14 @@ export interface ReplayListener {
   onSim(events: SimEvent[]): void;
   /** Playing, paused, or waiting for data. */
   onStatus(s: { playing: boolean; loading: string | null }): void;
+  /** The replay stopped by itself, on the tick that mattered. */
+  onPause?(reason: PauseReason): void;
+}
+
+/** When to stop by itself: on account events, and at moments ahead (news, session opens). */
+export interface PausePolicy {
+  event(e: SimEvent): PauseReason | null;
+  point(afterMs: number, uptoMs: number): { at: number; reason: PauseReason } | null;
 }
 
 export class Replay {
@@ -60,6 +70,8 @@ export class Replay {
   speed = 60;
   readonly broker: Broker;
   readonly decimals: number;
+  /** When to stop by itself; null never does. */
+  pausePolicy: PausePolicy | null = null;
 
   private ticks: Cache<TickSeries | null>;
   private months: Cache<BarSeries | null>;
@@ -102,7 +114,8 @@ export class Replay {
     if (s.positions.length + s.orders.length > 0 && Number.isFinite(s.time) && s.time < this.clock) {
       const target = this.clock;
       this.clock = s.time;
-      await this.advance(target);
+      // Back to where it was saved, without stopping on the way: this already happened.
+      await this.advance(target, { noPause: true });
     }
     await Promise.all([this.ticks.get(dayOf(this.clock)), this.months.get(monthOf(this.clock))]);
     if (!this.broker.hasPrices || this.broker.state.time < this.clock - DAY_MS) this.primePrices();
@@ -123,7 +136,7 @@ export class Replay {
       const dt = Math.min(250, now - this.last);
       this.last = now;
       if (this.busy) return;
-      void this.advance(this.clock + dt * this.speed, true);
+      void this.advance(this.clock + dt * this.speed, { fromPlay: true });
     };
     this.frame = requestAnimationFrame(loop);
   }
@@ -137,11 +150,25 @@ export class Replay {
     if (was) this.listener.onFrame();
   }
 
-  /** Move forward to `target` (ms), passing every tick to the account. */
-  async advance(target: number, fromPlay = false): Promise<void> {
+  /**
+   * Move forward to `target` (ms), passing every tick to the account.
+   *
+   * It stops early, on the exact tick, when the account does something the
+   * pause policy cares about (a stop hit, an order filled); playing, it also
+   * stops at the policy's next moment (before news, at a session open).
+   */
+  async advance(target: number, opts: { fromPlay?: boolean; noPause?: boolean } = {}): Promise<void> {
     if (target <= this.clock) return;
+    const policy = opts.noPause ? null : this.pausePolicy;
+    let ahead: PauseReason | null = null;
+    if (opts.fromPlay && policy) {
+      const p = policy.point(this.clock, target);
+      if (p) { target = p.at; ahead = p.reason; }
+    }
     this.busy = true;
     const events: SimEvent[] = [];
+    let stopped: PauseReason | null = null;
+    const stopOn = policy ? (e: SimEvent) => (stopped ??= policy.event(e)) !== null : undefined;
     try {
       while (this.clock < target) {
         const day = dayOf(this.clock);
@@ -153,16 +180,19 @@ export class Replay {
         }
         const dayEnd = dayStartMs(day) + DAY_MS;
         const end = Math.min(target, dayEnd);
-        if (ticks) this.feed(ticks, this.clock, end, events);
-        this.clock = end === dayEnd ? dayEnd : end;
-        if (fromPlay && end === dayEnd) break; // one day per frame at most
+        const at = ticks ? this.feed(ticks, this.clock, end, events, stopOn) : null;
+        if (at !== null) { this.clock = at; break; }
+        this.clock = end;
+        if (opts.fromPlay && end === dayEnd) break; // one day per frame at most
       }
-      if (fromPlay) await this.skipQuiet();
+      if (!stopped && ahead && this.clock >= target) stopped = ahead;
+      if (opts.fromPlay && !stopped) await this.skipQuiet();
       // Fetch ahead while playing, so the next day is there when the clock arrives.
-      if (this.playing) void this.ticks.get(dayOf(this.clock + DAY_MS / 2));
+      if (this.playing && !stopped) void this.ticks.get(dayOf(this.clock + DAY_MS / 2));
     } finally {
       this.busy = false;
     }
+    if (stopped) this.halt(stopped);
     if (events.length) this.listener.onSim(events);
     this.listener.onFrame();
   }
@@ -192,7 +222,7 @@ export class Replay {
       return null;
     }
     this.status("Playing through to there…");
-    await this.advance(target);
+    await this.advance(target, {});
     this.status(null);
     return null;
   }
@@ -246,21 +276,26 @@ export class Replay {
 
   private status(loading: string | null) { this.listener.onStatus({ playing: this.playing, loading }); }
 
-  private feed(t: TickSeries, fromMs: number, toMs: number, events: SimEvent[]) {
-    const base = t.dayStart * 1000;
-    const k = 10 ** t.decimals;
-    let i = lowerBoundMs(t, fromMs - base + 1);
-    const needAll = this.broker.state.positions.length + this.broker.state.orders.length > 0;
-    if (needAll) {
-      for (; i < t.count && t.ms[i] + base <= toMs; i++) {
-        const ev = this.broker.tick(t.ms[i] + base, t.bid[i] / k, t.ask[i] / k);
-        if (ev.length) events.push(...ev);
-      }
-      return;
+  /** Stopped by itself: not playing any more, and say why. */
+  private halt(reason: PauseReason) {
+    this.playing = false;
+    cancelAnimationFrame(this.frame);
+    this.status(null);
+    this.listener.onPause?.(reason);
+  }
+
+  /** Ticks in (fromMs, toMs] to the account; the time it stopped at, or null. */
+  private feed(t: TickSeries, fromMs: number, toMs: number, events: SimEvent[], stopOn?: (e: SimEvent) => boolean): number | null {
+    if (this.broker.state.positions.length + this.broker.state.orders.length > 0) {
+      return feedTicks(this.broker, t, fromMs, toMs, events, stopOn);
     }
     // Nothing open: only the last price matters.
+    const base = t.dayStart * 1000;
+    const k = 10 ** t.decimals;
+    const i = lowerBoundMs(t, fromMs - base + 1);
     const j = lowerBoundMs(t, toMs - base + 1) - 1;
     if (j >= 0 && (j >= i || !this.broker.hasPrices)) this.broker.tick(t.ms[j] + base, t.bid[j] / k, t.ask[j] / k);
+    return null;
   }
 
   /** Give the account the last price at or before the clock (after a jump). */

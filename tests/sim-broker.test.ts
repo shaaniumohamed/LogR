@@ -217,6 +217,88 @@ describe("costs, margin and the clock", () => {
   });
 });
 
+describe("R from the first stop set", () => {
+  it("counts a stop dragged in after an instant entry", () => {
+    const b = at(2000.00, 2000.20);
+    const id = ok(b.act({ kind: "market", side: "buy", lots: 1 })).ids[0];
+    b.tick(T0 + 1000, 2000.50, 2000.70);
+    ok(b.act({ kind: "modify", id, sl: 1999.20 }));
+    expect(b.positionRisk(b.state.positions[0])).toBeCloseTo(100); // (2000.20 − 1999.20) × 1 lot × 100
+    b.tick(T0 + 2000, 2002.20, 2002.40);
+    const trade = ideas(ok(b.act({ kind: "close", id })).events)[0];
+    expect(trade.risk).toBe(100);
+    expect(trade.r).toBe(2);
+  });
+
+  it("keeps the first stop's risk when the stop is later widened or tightened", () => {
+    const b = at(2000.00, 2000.20);
+    const id = ok(b.act({ kind: "market", side: "buy", lots: 1 })).ids[0];
+    ok(b.act({ kind: "modify", id, sl: 1999.20 }));
+    ok(b.act({ kind: "modify", id, sl: 1998.20 }));
+    ok(b.act({ kind: "modify", id, sl: null }));
+    b.tick(T0 + 1000, 2001.20, 2001.40);
+    expect(ideas(ok(b.act({ kind: "close", id })).events)[0].risk).toBe(100);
+  });
+
+  it("does not count a stop set after part of the trade was closed", () => {
+    const b = at(2000.00, 2000.20);
+    const id = ok(b.act({ kind: "market", side: "buy", lots: 1 })).ids[0];
+    b.tick(T0 + 1000, 2001.00, 2001.20);
+    ok(b.act({ kind: "close", id, lots: 0.5 }));
+    ok(b.act({ kind: "modify", id, sl: 1999.00 }));
+    expect(b.positionRisk(b.state.positions[0])).toBeNull();
+    const trade = ideas(ok(b.act({ kind: "close", id })).events)[0];
+    expect(trade.risk).toBeNull();
+    expect(trade.r).toBeNull();
+  });
+
+  it("does not count a stop placed where price has already been", () => {
+    const b = at(2000.00, 2000.20);
+    const id = ok(b.act({ kind: "market", side: "buy", lots: 1 })).ids[0];
+    b.tick(T0 + 1000, 1998.00, 1998.20); // sat through $2 of heat
+    b.tick(T0 + 2000, 2000.50, 2000.70);
+    ok(b.act({ kind: "modify", id, sl: 1999.00 })); // a $1.20 "risk" now would flatter R
+    expect(ideas(ok(b.act({ kind: "close", id })).events)[0].risk).toBeNull();
+  });
+
+  it("does not count breakeven or a trailing stop as the first stop", () => {
+    const b = at(2000.00, 2000.20);
+    const a = ok(b.act({ kind: "market", side: "buy", lots: 0.5 })).ids[0];
+    const c = ok(b.act({ kind: "market", side: "buy", lots: 0.5 })).ids[0];
+    b.tick(T0 + 1000, 2002.00, 2002.20);
+    ok(b.act({ kind: "breakeven", id: a }));
+    ok(b.act({ kind: "trail", id: c, distance: 1 }));
+    expect(b.state.positions.map((p) => b.positionRisk(p))).toEqual([null, null]);
+  });
+
+  it("adds up a ladder, counting a leg whose stop came with the order even if it fills after a partial close", () => {
+    const b = at(2000.00, 2000.20);
+    ok(b.act({ kind: "ladder", side: "buy", from: 1999, to: 1998, count: 2, sl: 1996, size: { lots: 0.2 }, cancelRestOnClose: false }));
+    b.tick(T0 + 1000, 1998.80, 1999.00); // fills 1999.00
+    const first = b.state.positions[0].id;
+    b.tick(T0 + 2000, 1999.80, 2000.00);
+    ok(b.act({ kind: "close", id: first, lots: 0.05 })); // banks a little
+    b.tick(T0 + 3000, 1997.80, 1998.00); // fills 1998.00
+    const ev = ok(b.act({ kind: "closeAll" })).events;
+    // (1999 − 1996) × 0.1 × 100 + (1998 − 1996) × 0.1 × 100
+    expect(ideas(ev)[0].risk).toBe(50);
+  });
+
+  it("finishes a trade saved before the rule the old way", () => {
+    const b = at(2000.00, 2000.20);
+    ok(b.act({ kind: "market", side: "buy", lots: 1, sl: 1999.20 }));
+    const old = b.snapshot();
+    delete old.v;
+    for (const idea of Object.values(old.ideas)) { delete idea.v; delete idea.stops; delete idea.banked; }
+    for (const p of old.positions) delete p.worst;
+    const resumed = new Broker(s(), old);
+    resumed.tick(T0 + 1000, 2001.20, 2001.40);
+    const trade = ideas(ok(resumed.act({ kind: "closeAll" })).events)[0];
+    expect(trade.risk).toBe(100);
+    expect(trade.r).toBe(1);
+  });
+});
+
 describe("determinism", () => {
   it("resumes from a snapshot to exactly where running straight through ends", () => {
     const ticks = Array.from({ length: 400 }, (_, i) => {
@@ -227,6 +309,12 @@ describe("determinism", () => {
       if (i === 5) b.act({ kind: "ladder", side: "buy", from: 1998, to: 1996, count: 3, sl: 1993, tp: 2003, size: { risk: 150 } });
       if (i === 40) b.act({ kind: "market", side: "sell", lots: 0.2, sl: 2008, tp: 1997 });
       if (i === 90 && b.state.positions[0]) b.act({ kind: "trail", id: b.state.positions[0].id, distance: 1.5 });
+      // An instant entry whose stop is dragged in later, then part of it banked.
+      if (i === 150) b.act({ kind: "market", side: "buy", lots: 0.3 });
+      const late = b.state.positions.find((p) => p.lots === 0.3 && p.sl === null && p.side === "buy");
+      if (i === 160 && late) b.act({ kind: "modify", id: late.id, sl: Math.round((b.state.bid - 3) * 100) / 100 });
+      const half = b.state.positions.find((p) => p.lots === 0.3 && p.side === "buy");
+      if (i === 230 && half) b.act({ kind: "close", id: half.id, lots: 0.1 });
     };
     const run = (from: Broker, start: number, log: SimEvent[]) => {
       for (let i = start; i < ticks.length; i++) { script(from, i); log.push(...from.tick(...ticks[i])); }

@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { btEvents, btPositions, btSessions, btStrategies, btTrades } from "@/lib/db/schema";
 import { backtestContext, heldRange, randomHeldDay } from "@/lib/backtest-data";
 import { DEFAULT_BT_SETTINGS, DEFAULT_CHART, type BtChartPrefs, type BtSettings } from "@/lib/core/backtest";
+import { startTimeFor } from "@/lib/core/replay/clock";
 import { toDoc } from "@/lib/chart/drawings-convert";
 
 /**
@@ -79,12 +80,17 @@ const Settings = z.object({
   stopOutLevel: z.number().min(0).max(1000),
 }).partial();
 
+const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Dates are YYYY-MM-DD.");
+const StartWhen = z.enum(["day", "tokyo", "london", "newyork", "random"]);
 const NewSession = z.object({
   strategyId: z.string().min(1),
   name: z.string().trim().max(80).optional(),
   start: z.union([
     z.object({ at: z.number().int().positive() }),
-    z.object({ random: z.literal(true), from: z.string().optional(), to: z.string().optional() }),
+    z.object({ random: z.literal(true), from: Day.optional(), to: Day.optional(), when: StartWhen.optional() })
+      .refine((v) => !v.from || !v.to || v.from <= v.to, "The range ends before it starts."),
+    // Picked on the chart in the workspace: it opens at the latest data.
+    z.object({ pick: z.literal(true) }),
   ]),
   settings: Settings.optional(),
   timeframe: z.string().max(4).optional(),
@@ -106,10 +112,12 @@ export async function createSession(input: z.input<typeof NewSession>): Promise<
     at = p.data.start.at;
     const first = Date.parse(`${range.first}T00:00:00Z`) / 1000, last = Date.parse(`${range.last}T23:59:59Z`) / 1000;
     if (at < first || at > last) return { ok: false, error: `Pick a moment between ${range.first} and ${range.last}.` };
+  } else if ("pick" in p.data.start) {
+    at = Date.parse(`${range.last}T00:00:00Z`) / 1000;
   } else {
     const day = await randomHeldDay("XAUUSD", p.data.start.from, p.data.start.to);
     if (!day) return { ok: false, error: "No trading day is held in that range." };
-    at = Date.parse(`${day}T00:00:00Z`) / 1000;
+    at = startTimeFor(day, p.data.start.when ?? "day");
   }
 
   const settings: BtSettings = { ...DEFAULT_BT_SETTINGS, ...(p.data.settings ?? {}) } as BtSettings;
@@ -133,12 +141,21 @@ export async function deleteSession(id: string): Promise<Result> {
 }
 
 const Indicator = z.object({ id: z.string().max(40), kind: z.enum(["ema", "sma", "vwap"]), period: z.number().int().min(1).max(1000), color: z.string().max(20) });
+const Link = z.object({
+  orderId: z.string().max(40), ideaId: z.string().max(40), side: z.enum(["buy", "sell"]),
+  detached: z.boolean().optional(), frozen: z.boolean().optional(),
+});
 const ChartPrefs = z.object({
   type: z.enum(["candles", "line"]), volume: z.boolean(), sessions: z.boolean(), news: z.enum(["off", "high", "medium"]),
   indicators: z.array(Indicator).max(10),
+  // Optional: a tab opened before these existed still saves.
+  askLine: z.boolean().optional(), countdown: z.boolean().optional(), tradePaths: z.boolean().optional(),
+  links: z.record(z.string().max(64), Link).refine((r) => Object.keys(r).length <= 300, "Too many linked drawings.").optional(),
 });
 const View = z.object({
   clockAt: z.number().int().positive(),
+  /** Set when the start is picked on the chart before anything was traded. */
+  startedAt: z.number().int().positive().optional(),
   timeframe: z.string().max(4),
   chart: ChartPrefs.optional(),
   name: z.string().trim().min(1).max(80).optional(),
@@ -152,9 +169,10 @@ export async function saveSessionView(id: string, view: z.input<typeof View>): P
   if (!ctx) return NOT_ALLOWED;
   const p = View.safeParse(view);
   if (!p.success) return { ok: false, error: p.error.issues[0].message };
-  const { clockAt, chart, ...rest } = p.data;
+  const { clockAt, startedAt, chart, ...rest } = p.data;
   const done = await db.update(btSessions).set({
-    clockAt: new Date(clockAt * 1000), ...(chart ? { chart: chart as BtChartPrefs } : {}), ...rest, updatedAt: new Date(),
+    clockAt: new Date(clockAt * 1000), ...(startedAt ? { startedAt: new Date(startedAt * 1000) } : {}),
+    ...(chart ? { chart: { ...DEFAULT_CHART, ...chart } as BtChartPrefs } : {}), ...rest, updatedAt: new Date(),
   }).where(and(eq(btSessions.id, id), eq(btSessions.userId, ctx.userId))).returning({ id: btSessions.id });
   return done.length ? { ok: true } : { ok: false, error: "No such session." };
 }
@@ -253,6 +271,7 @@ export async function recordSession(id: string, payload: z.input<typeof Record_>
 export async function randomDay(from?: string, to?: string): Promise<Result<{ day: string }>> {
   const ctx = await backtestContext();
   if (!ctx) return NOT_ALLOWED;
+  if ((from && !Day.safeParse(from).success) || (to && !Day.safeParse(to).success)) return { ok: false, error: "Dates are YYYY-MM-DD." };
   const day = await randomHeldDay("XAUUSD", from, to);
   return day ? { ok: true, day } : { ok: false, error: "No trading day is held in that range." };
 }

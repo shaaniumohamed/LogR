@@ -9,10 +9,14 @@ import { fromRow, type SessionProps } from "./model";
 
 export const dynamic = "force-dynamic";
 
-export default async function BacktestSession({ params }: { params: Promise<{ id: string }> }) {
+export default async function BacktestSession({ params, searchParams }: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ pick?: string }>;
+}) {
   const ctx = await backtestContext();
   if (!ctx) return <Empty title="Backtesting is not open yet" body="It is only available to the owners while it is being finished." />;
   const { id } = await params;
+  const { pick } = await searchParams;
   const session = await loadSession(ctx.userId, id);
   if (!session) notFound();
   const [strategy, trades, range] = await Promise.all([
@@ -33,5 +37,5 @@ export default async function BacktestSession({ params }: { params: Promise<{ id
     drawingTimes: session.drawingTimes ?? {},
     range,
   };
-  return <Workspace session={props} trades={trades.map(fromRow)} timeZone={ctx.timeZone} />;
+  return <Workspace session={props} trades={trades.map(fromRow)} timeZone={ctx.timeZone} startInPick={pick === "1"} />;
 }

@@ -58,8 +58,10 @@ export interface OpenPosition {
   openTime: number;
   sl: number | null;
   tp: number | null;
-  /** The stop at entry, for measuring the trade in R. */
+  /** The stop at entry (kept for trades saved before the first-stop rule). */
   initialSl: number | null;
+  /** The worst price seen since it opened (bid for a buy, ask for a sell): a stop set beyond it came too late to count. */
+  worst?: number;
   /** Commission already charged for opening (negative), per remaining lots. */
   commission: number;
   swap: number;
@@ -79,12 +81,27 @@ export interface PendingOrder {
   createdTime: number;
 }
 
-/** One trade idea: everything opened under it, so a ladder is one trade. */
+/**
+ * One trade idea: everything opened under it, so a ladder is one trade.
+ *
+ * Its risk, for measuring it in R, is the FIRST stop set on each leg — at
+ * entry, or dragged in afterwards as MT5 traders do. A first stop counts only
+ * if it is on the losing side of the entry, was set before any part of the
+ * trade was closed, and price had not already been past it; otherwise the
+ * trade has no R. A later stop, wider or tighter, never changes it: R is the
+ * risk the trader took on, not the one they wished they had.
+ */
 export interface Idea {
   id: string;
   side: Side;
-  /** Money at risk if every filled leg hit its initial stop; null if any filled without one. */
+  /** Legacy (ideas saved before `v: 2`): money at risk at entry; null if any leg filled without a stop. */
   risk: number | null;
+  /** 2 for ideas measured by the first-stop rule. */
+  v?: 2;
+  /** Per position: the first stop's distance from the entry (price), null if it did not count, absent if none yet. */
+  stops?: Record<string, number | null>;
+  /** Some of it has been closed: stops set from now on do not count. */
+  banked?: boolean;
   openedAt: number | null;
   /** When it ends by stop or target, cancel its unfilled orders too. */
   cancelRestOnClose: boolean;
@@ -100,6 +117,8 @@ export interface ClosedLeg extends Omit<Position, "openedAt" | "closedAt"> {
 }
 
 export interface SimState {
+  /** Shape version: 2 measures R by the first stop (see Idea). */
+  v?: number;
   time: number;
   bid: number;
   ask: number;
@@ -158,7 +177,7 @@ const DAY_MS = 86_400_000;
 
 export function initialState(settings: SimSettings, time: number): SimState {
   return {
-    time, bid: NaN, ask: NaN, balance: settings.balance, nextId: 1,
+    v: 2, time, bid: NaN, ask: NaN, balance: settings.balance, nextId: 1,
     positions: [], orders: [], ideas: {}, lastRollover: rolloverAtOrBefore(time),
   };
 }
@@ -168,11 +187,21 @@ function rolloverAtOrBefore(time: number) {
   return r <= time ? r : r - DAY_MS;
 }
 
+/**
+ * An account saved by an older version, brought up to date. Ideas saved
+ * before the first-stop rule keep being measured the old way until they
+ * finish, so a trade's R never changes meaning half way through.
+ */
+export function upgradeState(s: SimState): SimState {
+  if (!s.v) s.v = 2;
+  return s;
+}
+
 export class Broker {
   state: SimState;
 
   constructor(readonly settings: SimSettings, state?: SimState, time = 0) {
-    this.state = state ? structuredClone(state) : initialState(settings, time);
+    this.state = state ? upgradeState(structuredClone(state)) : initialState(settings, time);
   }
 
   /** A deep copy of the state, for saving. */
@@ -197,6 +226,16 @@ export class Broker {
     let m = 0;
     for (const p of this.state.positions) m += (p.lots * this.settings.contractSize * p.openPrice) / this.settings.leverage;
     return m;
+  }
+
+  /**
+   * Money the open position risks to its first stop, for its remaining lots;
+   * null when it has no stop that counts (yet).
+   */
+  positionRisk(p: OpenPosition): number | null {
+    const idea = this.state.ideas[p.ideaId];
+    const dist = idea?.stops ? idea.stops[p.id] : p.initialSl === null ? null : Math.abs(p.openPrice - p.initialSl);
+    return typeof dist === "number" && dist > 0 ? dist * p.lots * this.settings.contractSize : null;
   }
 
   /** Lots for a given risk in account currency between an entry and a stop, rounded down to the lot step. */
@@ -278,6 +317,7 @@ export class Broker {
           const bad = this.badStops(pos.side, pos.side === "buy" ? bid : ask, sl, tp, "position");
           if (bad) return { ok: false, error: bad };
           pos.sl = sl; pos.tp = tp;
+          this.noteStop(pos);
         } else if (ord) {
           const price = action.price ?? ord.price;
           const sl = action.sl === undefined ? ord.sl : action.sl;
@@ -330,6 +370,7 @@ export class Broker {
         const bad = this.badStops(pos.side, pos.side === "buy" ? bid : ask, sl, pos.tp, "position");
         if (bad) return { ok: false, error: `Breakeven is not possible yet: ${bad.toLowerCase()}` };
         pos.sl = sl;
+        this.noteStop(pos);
         events.push({ kind: "modify", time: s.time, id: pos.id });
         break;
       }
@@ -379,6 +420,8 @@ export class Broker {
     // Stops, targets and trailing stops.
     if (s.positions.length) {
       for (const p of [...s.positions]) {
+        if (p.side === "buy") { if (p.worst === undefined || bid < p.worst) p.worst = bid; }
+        else if (p.worst === undefined || ask > p.worst) p.worst = ask;
         if (p.trail) this.trailOne(p);
         if (p.side === "buy") {
           if (p.sl !== null && bid <= p.sl) this.closeLots(p, p.lots, bid - this.settings.slippage, "sl", events);
@@ -399,7 +442,7 @@ export class Broker {
 
   private idea(id: string | undefined, side: Side, cancelRestOnClose: boolean): Idea {
     if (id && this.state.ideas[id]) return this.state.ideas[id];
-    const idea: Idea = { id: id ?? this.id("T"), side, risk: 0, openedAt: null, cancelRestOnClose, legs: [] };
+    const idea: Idea = { id: id ?? this.id("T"), side, risk: 0, v: 2, stops: {}, banked: false, openedAt: null, cancelRestOnClose, legs: [] };
     this.state.ideas[idea.id] = idea;
     return idea;
   }
@@ -410,10 +453,17 @@ export class Broker {
     const p: OpenPosition = {
       id, ideaId: idea.id, side, lots, openPrice: roundPrice(price), openTime: s.time, sl, tp, initialSl: sl,
       commission: -round2(this.settings.commissionPerLot * lots), swap: 0, trail,
+      worst: side === "buy" ? s.bid : s.ask,
     };
     s.positions.push(p);
     idea.openedAt ??= s.time;
     if (idea.risk !== null) idea.risk = sl === null ? null : idea.risk + Math.abs(p.openPrice - sl) * lots * this.settings.contractSize;
+    // A stop that arrives with the fill (set on the order beforehand) counts,
+    // even after part of the trade was closed: it was decided before the fill.
+    if (idea.stops && sl !== null) {
+      const dist = side === "buy" ? p.openPrice - sl : sl - p.openPrice;
+      idea.stops[id] = dist > 0 ? roundPrice(dist) : null;
+    }
     events.push({ kind: "fill", time: s.time, positionId: id, ideaId: idea.id, side, lots, price: p.openPrice, from });
     if (p.trail) this.trailOne(p);
     return id;
@@ -451,7 +501,7 @@ export class Broker {
       p.swap = round2(p.swap - swap);
     }
     const idea = s.ideas[p.ideaId];
-    idea?.legs.push(leg);
+    if (idea) { idea.legs.push(leg); idea.banked = true; }
     events.push({ kind: "close", time: s.time, positionId: p.id, ideaId: p.ideaId, side: p.side, lots: leg.lots, price: closePrice, reason, profit: round2(gross + leg.commission + swap) });
     if (idea && reason !== "user" && idea.cancelRestOnClose && !s.positions.some((x) => x.ideaId === idea.id)) {
       for (const o of s.orders.filter((x) => x.ideaId === idea.id)) {
@@ -471,7 +521,7 @@ export class Broker {
     delete s.ideas[ideaId];
     if (!idea.legs.length) return; // orders cancelled before any filled: not a trade
     const pnl = round2(idea.legs.reduce((a, l) => a + l.profit + l.commission + l.swap, 0));
-    const risk = idea.risk && idea.risk > 0 ? round2(idea.risk) : null;
+    const risk = this.ideaRisk(idea);
     events.push({
       kind: "idea", time: s.time,
       idea: {
@@ -481,16 +531,42 @@ export class Broker {
     });
   }
 
+  /** Money the whole idea risked to the first stops of what filled; null if any leg had none that counted. */
+  private ideaRisk(idea: Idea): number | null {
+    if (!idea.stops) return idea.risk && idea.risk > 0 ? round2(idea.risk) : null;
+    // Each position's full size is the sum of its closes.
+    const lots = new Map<string, number>();
+    for (const l of idea.legs) lots.set(l.positionId, (lots.get(l.positionId) ?? 0) + l.lots);
+    let total = 0;
+    for (const [id, n] of lots) {
+      const dist = idea.stops[id];
+      if (typeof dist !== "number") return null;
+      total += dist * n * this.settings.contractSize;
+    }
+    return total > 0 ? round2(total) : null;
+  }
+
+  /** The first stop on a position decides its risk; record whether it counts. */
+  private noteStop(p: OpenPosition) {
+    if (p.sl === null) return;
+    const idea = this.state.ideas[p.ideaId];
+    if (!idea?.stops || p.id in idea.stops) return;
+    const buy = p.side === "buy";
+    const losing = buy ? p.sl < p.openPrice : p.sl > p.openPrice;
+    const crossed = p.worst !== undefined && (buy ? p.worst <= p.sl : p.worst >= p.sl);
+    idea.stops[p.id] = idea.banked || !losing || crossed ? null : roundPrice(Math.abs(p.openPrice - p.sl));
+  }
+
   private trailOne(p: OpenPosition) {
     if (!p.trail) return;
     const { bid, ask } = this.state;
     if (p.side === "buy") {
       const want = roundPrice(bid - p.trail);
       // Starts once the stop would be at or past the entry, then only ever tightens.
-      if (want >= p.openPrice && (p.sl === null || want > p.sl)) p.sl = want;
+      if (want >= p.openPrice && (p.sl === null || want > p.sl)) { p.sl = want; this.noteStop(p); }
     } else {
       const want = roundPrice(ask + p.trail);
-      if (want <= p.openPrice && (p.sl === null || want < p.sl)) p.sl = want;
+      if (want <= p.openPrice && (p.sl === null || want < p.sl)) { p.sl = want; this.noteStop(p); }
     }
   }
 
